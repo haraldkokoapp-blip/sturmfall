@@ -1753,10 +1753,13 @@ function moveEntity(e,wx,wz,dt){
   if(!e.air&&!e.onGround&&!e.car&&e.fallY!=null&&e.fallY-p.y>8&&p.y-terrainH(p.x,p.z)>10){e.air='glide';e.fallY=null;if(e.isPlayer)sfx('glider',.7);} // tiefer Sturz (Himmelsinsel, Klippe): Gleiter geht auf
   if(e.air&&e.onGround){e.air=null;if(!e.padFly)e.landT=gameTime;if(player&&Math.hypot(p.x-player.pos.x,p.z-player.pos.z)<60)for(let i=0;i<8;i++)spawnPart(_tp.set(p.x,p.y+.2,p.z),0xd8c8a0,.3,5,.6);if(e.isPlayer&&!e.padFly)showMsg('Gelandet – such Truhen',2.2);e.padFly=false;}
 }
+// Figuren auseinanderschieben: nach x sortiert, nur echte Nachbarn prüfen (bei 200 Bots 2,6 ms -> unter 0,3 ms)
+const _sepA=[];
 function separate(){
-  const Ls=entities;for(let i=0;i<Ls.length;i++){const a=Ls[i];if(!a.alive||a.air||a.car||a.seatCar)continue;
-    for(let j=i+1;j<Ls.length;j++){const b=Ls[j];if(!b.alive||b.air||b.car||b.seatCar)continue;const dx=b.pos.x-a.pos.x,dz=b.pos.z-a.pos.z;
-      if(dx>.95||dx<-.95||dz>.95||dz<-.95||Math.abs(b.pos.y-a.pos.y)>1.7)continue;const d=Math.hypot(dx,dz),m=.95-d;if(m<=0)continue;
+  const Ls=_sepA;Ls.length=0;for(const e of entities)if(e.alive&&!e.air&&!e.car&&!e.seatCar)Ls.push(e);Ls.sort((a,b)=>a.pos.x-b.pos.x);
+  for(let i=0;i<Ls.length;i++){const a=Ls[i];
+    for(let j=i+1;j<Ls.length;j++){const b=Ls[j],dx=b.pos.x-a.pos.x;if(dx>.95)break;const dz=b.pos.z-a.pos.z;
+      if(dz>.95||dz<-.95||Math.abs(b.pos.y-a.pos.y)>1.7)continue;const d=Math.hypot(dx,dz),m=.95-d;if(m<=0)continue;
       const nx=d>1e-4?dx/d:Math.random()-.5,nz=d>1e-4?dz/d:Math.random()-.5,wa=a.isPlayer?.25:.5,wb=b.isPlayer?.25:.5;
       a.pos.x-=nx*m*wa;a.pos.z-=nz*m*wa;b.pos.x+=nx*m*wb;b.pos.z+=nz*m*wb;}}}
 function terrainRay(o,d,maxD){
@@ -2085,6 +2088,12 @@ function botShoot(b){
   _d2.copy(_t).sub(_o2).normalize();
   if(gameTime-(b.lastFire||-99)>3)b.trkT=Math.max(b.trkT||0,gameTime-(DIFF.settle||1.4)*.35);b.lastFire=gameTime;const stl=1+2.4*(1-clamp((gameTime-(b.trkT||0))/(DIFF.settle||1.4),0,1));
   const acc=b.skill*DIFF.acc*stl*(t.moving?(Math.hypot(t.vel.x,t.vel.z)>7?1.3:1.15):1)*(def.id==='sniper'?.4:1)*(b.crouch?.85:1)*((t.crK||0)>.5?1.12:1);
+  if(!t.isPlayer&&!t.remote){ // Bot gegen Bot: Treffer auswürfeln statt Strahlen schießen (gleiche Streuung). Spart bei 200 Bots am meisten Rechenzeit
+    b.mag--;b.kick=1;b.shots=(b.shots|0)+1;const dist=Math.hypot(t.pos.x-b.pos.x,t.pos.z-b.pos.z);let hit=false;
+    for(let i=0;i<def.pellets;i++){const sp=def.pellets>1?def.spread*.85+acc*.4:acc+def.spread*.4;if(dist<def.range&&Math.abs(gauss())*sp*dist<.38){hit=true;let dmg=def.dmg*rm;if(def.falloff)dmg*=clamp(1-(dist-def.falloff)/40,.25,1);if(Math.random()<.12)dmg*=def.head;damage(t,dmg,b);}}
+    if(!b.farH&&camera.position.distanceTo(b.pos)<160){const muzzle=muzzleOf(b).clone();if(camera.position.distanceTo(muzzle)<90)spawnFlash(muzzle); // sichtbar: Mündungsfeuer und Leuchtspur
+      tracer(muzzle,hit?_e.set(t.pos.x,t.pos.y+1.1,t.pos.z):_e.set(t.pos.x+gauss()*2,t.pos.y+1+gauss(),t.pos.z+gauss()*2),0xffb347);}
+    sfx(def.snd||'bot',1,_o2);return;}
   const muzzle=muzzleOf(b).clone(),o=_o2.clone(),base=_d2.clone();
   b.mag--;b.kick=1;b.shots=(b.shots|0)+1;if(camera.position.distanceTo(muzzle)<90)spawnFlash(muzzle);
   for(let i=0;i<def.pellets;i++){
@@ -2116,9 +2125,9 @@ function botThink(b){
   if(!(b.aggro>0&&b.target&&b.target.alive)){
     const cand=[];for(const e of entities){if(e===b||!e.alive||e.air||sameTeam(e,b))continue;const d=Math.hypot(e.pos.x-b.pos.x,e.pos.z-b.pos.z);if(d<((e.crK||0)>.5&&!(e.isPlayer&&gameTime-lastShotT<2)?sight*.55:sight))cand.push([d,e]);}
     cand.sort((a,c)=>a[0]-c[0]);let best=null;b.tLos=1;
-    for(let i=0;i<Math.min(3,cand.length);i++){const ce=cand[i][1];if(ce!==b.target&&(ce.isPlayer||(ce.remote&&ce.botIdx==null))&&attackers(ce,b)>=(DIFF.cap||3))continue;const ls=losState(b,ce);if(ls){best=ce;b.tLos=ls;break;}}
+    for(let i=0;i<Math.min(3,cand.length);i++){const ce=cand[i][1];if(ce!==b.target&&(ce.isPlayer||(ce.remote&&ce.botIdx==null))&&attackers(ce,b)>=(DIFF.cap||3))continue;const ls=b.farH&&!ce.isPlayer&&!ce.remote?(Math.random()<.55?1:0):losState(b,ce);if(ls){best=ce;b.tLos=ls;break;}}
     if(best&&best!==b.target){b.react=rand(.6,1.3)+DIFF.react;b.trkT=gameTime;}b.target=best;
-  }else b.tLos=losState(b,b.target)||1;
+  }else b.tLos=b.farH&&!b.target.isPlayer&&!b.target.remote?1:(losState(b,b.target)||1);
   // ohne Waffe: nur Nahkampf auf kurze Distanz, sonst weglaufen
   if(!def&&b.target){const d=Math.hypot(b.target.pos.x-b.pos.x,b.target.pos.z-b.pos.z);if(d>(b.aggro>0?6:3.5)){if(b.aggro>0){b.flee=b.target;b.fleeT=3;}b.target=null;}}
   if(!b.target&&(!b.wpn||b.looted<3||gameTime<480)){
@@ -2610,13 +2619,14 @@ function update(dt){
   if(player.alive&&!player.dance)updatePlayer(dt);
   const ppx=player.pos.x,ppz=player.pos.z;
   for(const b of bots){if(!b.alive)continue;
-    let near=Math.abs(b.pos.x-ppx)+Math.abs(b.pos.z-ppz)<240;if(!near&&MP.inMatch)for(const e of MP.remotes.values())if(e.alive&&Math.abs(b.pos.x-e.pos.x)+Math.abs(b.pos.z-e.pos.z)<240){near=true;break;}
+    let md=Math.abs(b.pos.x-ppx)+Math.abs(b.pos.z-ppz);if(md>=240&&MP.inMatch)for(const e of MP.remotes.values())if(e.alive){const d=Math.abs(b.pos.x-e.pos.x)+Math.abs(b.pos.z-e.pos.z);if(d<md)md=d;}
+    const near=md<240;b.farH=!near; // weit weg von allen Spielern: Gefechte zwischen Bots ohne teure Strahlen
     if(b.air||b.car||near){updateBot(b,dt+b.lodDt);b.lodDt=0;}
-    else{b.lodDt+=dt;if((frameN+b.idx)%3===0){updateBot(b,Math.min(.2,b.lodDt));b.lodDt=0;}}}
+    else{b.lodDt+=dt;const ev=md<420?3:6;if((frameN+b.idx)%ev===0){updateBot(b,Math.min(.3,b.lodDt));b.lodDt=0;}}} // sehr weit weg: nur jedes 6. Bild
   if(MP.inMatch){mpSync(dt);MP.pt-=dt;if(MP.pt<=0){MP.pt=.066;mpPush();}}
   updateCars(dt);seatTick();updatePads();wonderTick(dt);wonderTick2(dt);stationTick(dt);
   separate();
-  for(const e of entities)if(e.alive&&e.char.g.visible)poseChar(e,dt);
+  for(const e of entities)if(e.alive&&e.char.g.visible){if(!e.char.lod)poseChar(e,dt);else if(((frameN+(e.idx|0))&1)===0)poseChar(e,dt*2);} // ferne Figuren mit halber Rate animieren
   for(let i=corpses.length-1;i>=0;i--){const c=corpses[i],gg=c.e.char.g;c.t+=dt;gg.rotation.y=c.e.yaw;const k=Math.min(1,c.t*2.2);gg.rotation.x=k*k*Math.PI/2*.96;gg.position.y=c.e.pos.y+Math.sin(Math.min(1,c.t*2.2)*Math.PI)*.15;
     if(c.t>2.4&&!c.e.isPlayer){for(let q=0;q<16;q++)spawnPart(_tp.set(c.e.pos.x+rand(-.6,.6),c.e.pos.y+rand(.1,1),c.e.pos.z+rand(-.6,.6)),pickM([0x9fd8ff,0x59b6ff,0xffffff]),rand(.08,.2),2.5,.9);worldRoot.remove(gg);corpses.splice(i,1);}}
   for(const s of builds){if(s.hp<s.max&&s.grow!==false){s.hp=Math.min(s.max,s.hp+s.max*.6*dt);if(s.hp>=s.max)s.grow=false;}
