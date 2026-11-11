@@ -578,7 +578,7 @@ function withMag(w){w.mag=WDEF[w.id].mag;return w;}
 
 /* ================= Audio ================= */
 // Eigene Klangsynthese (keine fremden Samples): Effekte → Bus-Kompressor → Lautheit → Limiter; Musik separat
-let actx=null,noiseBuf=null,brownBuf=null,MASTER=null,MUSG=null,REV=null,MDLY=null,CAN_PAN=false,LOOPS=null,birdT=7,reloadTot=1,reloadSt=0;const VOC=[];
+let actx=null,noiseBuf=null,brownBuf=null,MASTER=null,MUSG=null,REV=null,MDLY=null,ANA=null,CAN_PAN=false,LOOPS=null,birdT=7,reloadTot=1,reloadSt=0,audT=0,audFix=0,audSil=0;const VOC=[],ANAB=new Float32Array(256);
 function mkNoise(sec,brown){const sr=actx.sampleRate,n=Math.floor(sr*sec),b=actx.createBuffer(1,n,sr),d=b.getChannelData(0);let l=0;for(let i=0;i<n;i++){const w=Math.random()*2-1;if(brown){l=(l+.02*w)/1.02;d[i]=l*3.5;}else d[i]=w;}return b;}
 function mkIR(sec){const sr=actx.sampleRate,n=Math.floor(sr*sec),b=actx.createBuffer(2,n,sr);
   for(let c=0;c<2;c++){const d=b.getChannelData(c);for(let i=0;i<n;i++){const t=i/sr;d[i]=(Math.random()*2-1)*Math.pow(1-t/sec,2.8)*Math.min(1,t/.008);}
@@ -586,6 +586,7 @@ function mkIR(sec){const sr=actx.sampleRate,n=Math.floor(sr*sec),b=actx.createBu
 function applyVol(){if(!actx)return;const t=actx.currentTime;MASTER.gain.setTargetAtTime(.9*(SAVE.volS==null?1:SAVE.volS),t,.05);MUSG.gain.setTargetAtTime(.5*(SAVE.volM==null?.6:SAVE.volM),t,.05);}
 function initAudio(){try{if(!actx){actx=new(window.AudioContext||window.webkitAudioContext)();
     const lim=actx.createDynamicsCompressor();lim.threshold.value=-2.5;lim.knee.value=0;lim.ratio.value=20;lim.attack.value=.001;lim.release.value=.08;lim.connect(actx.destination);
+    try{ANA=actx.createAnalyser();ANA.fftSize=256;lim.connect(ANA);}catch(_){ANA=null;}
     const out=actx.createGain();out.gain.value=1;out.connect(lim);
     const comp=actx.createDynamicsCompressor();comp.threshold.value=-14;comp.knee.value=10;comp.ratio.value=2.5;comp.attack.value=.004;comp.release.value=.2;
     const mk=actx.createGain();mk.gain.value=1.4;comp.connect(mk);mk.connect(out);
@@ -595,7 +596,11 @@ function initAudio(){try{if(!actx){actx=new(window.AudioContext||window.webkitAu
     try{MDLY=actx.createDelay(1.5);MDLY.delayTime.value=.37;const fb=actx.createGain(),lp=actx.createBiquadFilter(),wet=actx.createGain();fb.gain.value=.32;lp.type='lowpass';lp.frequency.value=2400;wet.gain.value=.3;MDLY.connect(lp);lp.connect(fb);fb.connect(MDLY);lp.connect(wet);wet.connect(MUSG);}catch(_){MDLY=null;}
     CAN_PAN=typeof actx.createStereoPanner==='function';try{initLoops();}catch(_){LOOPS=null;}applyVol();}
   if(actx.state==='suspended')actx.resume();}catch(e){actx=null;}}
-function voiceOk(du,prio){const t=actx.currentTime;let j=0;for(let i=0;i<VOC.length;i++)if(VOC[i]>t)VOC[j++]=VOC[i];VOC.length=j;if(j>=64&&!prio)return false;VOC.push(t+du);if(VOC.length>120)VOC.splice(0,VOC.length-120);return true;}
+// Stimmen-Budget: eigene Sounds immer, nahe Sounds bis 56, ferne nur bis 30 gleichzeitig (schützt vor Überlastung)
+function voiceOk(du,prio,far){const t=actx.currentTime;let j=0;for(let i=0;i<VOC.length;i++)if(VOC[i]>t)VOC[j++]=VOC[i];VOC.length=j;if(!prio&&(j>=40||(far&&j>=22)))return false;if(j>=70)return false;VOC.push(t+du);return true;}
+function farOf(pos,range){if(!pos)return false;const L=lisPos();return Math.hypot(pos.x-L.x,pos.z-L.z)>range*.3;}
+function audioReset(){const old=actx;actx=null;MASTER=null;MUSG=null;REV=null;MDLY=null;ANA=null;LOOPS=null;VOC.length=0;MUS.on=null;MUS.g=null;engine=null;try{if(old&&old.close)old.close();}catch(e){}
+  initAudio();if(actx&&player&&player.car)engineStart();}
 function lisPos(){return player&&player.alive&&state!=='menu'?player.pos:camera.position;}
 // Ausgabe-Bus: Lautstärke, Position (null = direkt), Reichweite, Hall, Schallverzögerung, Abfall-Kurve
 function abus(vol,pos,range,rev,dl,ex){
@@ -611,7 +616,7 @@ function abus(vol,pos,range,rev,dl,ex){
   inp.t=actx.currentTime+.004+dly;inp.k=k;return inp;}
 function tn(o,t,ty,f0,f1,du,v,at){if(!(v>.0005))return;const s=actx.createOscillator(),g=actx.createGain();s.type=ty;s.frequency.setValueAtTime(f0,t);if(f1&&f1!==f0)s.frequency.exponentialRampToValueAtTime(f1,t+du);
   at=at||.003;g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(v,t+at);g.gain.exponentialRampToValueAtTime(.0001,t+Math.max(du,at+.01));s.connect(g);g.connect(o);s.start(t);s.stop(t+du+.05);}
-function nz(o,t,du,v,ft,f0,f1,q,at,buf){if(!(v>.0005))return;const s=actx.createBufferSource();s.buffer=buf||noiseBuf;s.loop=true;const f=actx.createBiquadFilter();f.type=ft;f.frequency.setValueAtTime(f0,t);if(f1&&f1!==f0)f.frequency.exponentialRampToValueAtTime(f1,t+du);f.Q.value=q||.7;
+function nz(o,t,du,v,ft,f0,f1,q,at,buf){if(!(v>.0005))return;const s=actx.createBufferSource();s.buffer=buf||noiseBuf;s.loop=true;const f=actx.createBiquadFilter();f.type=ft;f.frequency.setValueAtTime(du<.09?(f1?Math.sqrt(f0*f1):f0):f0,t);if(f1&&f1!==f0&&du>=.09)f.frequency.exponentialRampToValueAtTime(f1,t+du);f.Q.value=q||.7;
   const g=actx.createGain();at=at||.002;g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(v,t+at);g.gain.exponentialRampToValueAtTime(.0001,t+Math.max(du,at+.01));s.connect(f);f.connect(g);g.connect(o);s.start(t,Math.random());s.stop(t+du+.05);}
 function lpN(o,f){const l=actx.createBiquadFilter();l.type='lowpass';l.frequency.value=f;l.connect(o);return l;}
 // Waffen: c=Knall, b=Körper, m=Mitten-Punch, th=Druckwelle, tl=Nachhall, far=Fernknall (+Echo), r=Hörweite
@@ -622,13 +627,13 @@ const GUNSND={ar:GA,bot:GA,
   sg:{r:280,c:[2400,.045,.9],b:[1800,150,.3,1],m:[500,.12,.7],th:[85,.28,1],tl:.7,far:[900,.14],mech:4},
   sniper:{r:520,c:[5000,.04,1],b:[2200,180,.36,1],m:[700,.1,.6],th:[70,.34,1],tl:1.3,far:[1100,.12],mech:5}};
 function gunshot(G,o,own){const t=o.t,k=o.k;
+  if(k<.45){nz(o,t,G.far[1]*1.3,.5+.45*(1-k),'bandpass',G.far[0],G.far[0]*.6,1.2,.002);nz(o,t+.004,G.b[2]*.8,.35,'lowpass',G.b[0]*.6,G.b[1],.8,.002);nz(o,t+.2+(1-k)*.25,G.far[1]*1.6,.3*(1-k),'bandpass',G.far[0]*.7,G.far[0]*.4,1.1,.004);return;}
   nz(o,t,G.c[1],G.c[2]*(.35+.65*k),'bandpass',G.c[0],G.c[0]*.75,.9,.0006);
   nz(o,t,G.b[2],G.b[3]*(.5+.5*k),'lowpass',G.b[0],G.b[1],.9,.0012);
-  nz(o,t+.003,G.m[1],G.m[2],'bandpass',G.m[0],G.m[0]*.7,1.6,.002);
+  if(k>=.7||own)nz(o,t+.003,G.m[1],G.m[2],'bandpass',G.m[0],G.m[0]*.7,1.6,.002);
   if(k>.35)tn(o,t,'sine',G.th[0],G.th[0]*.3,G.th[1],G.th[2]*(k-.2),.002);
   nz(o,t+.012,G.tl,.18+(1-k)*.25,'lowpass',1400,180,.7,.02);
-  if(k<.8){nz(o,t+.002,G.far[1],.6*(1-k),'bandpass',G.far[0],G.far[0]*.6,1.3,.002);
-    const et=t+.18+(1-k)*.25;nz(o,et,G.far[1]*1.6,.3*(1-k),'bandpass',G.far[0]*.7,G.far[0]*.4,1.1,.004);}
+  if(k<.8)nz(o,t+.002,G.far[1],.6*(1-k),'bandpass',G.far[0],G.far[0]*.6,1.3,.002);
   if(!own)return;const m=G.mech;
   if(m===1)nz(o,t+.028,.025,.12,'bandpass',3400,3000,7);
   else if(m===2)nz(o,t+.02,.03,.14,'bandpass',4200,3600,6);
@@ -648,7 +653,7 @@ function surfOf(e){if(e.inWater)return'water';const x=e.pos.x,z=e.pos.z,th=terra
 // Gegner-Schritte deutlich hörbar (Richtung + Entfernung), eigene leiser; Geduckte sind lautlos
 function footstep(e,spd){if(!actx||!MASTER||state!=='play'||!player)return;const own=e===player;if(e.crouch&&!own)return;if(own&&player.car)return;
   if(!own&&Math.abs(e.pos.x-player.pos.x)+Math.abs(e.pos.z-player.pos.z)>62)return;
-  const run=clamp(spd/6,.5,1.25),v=own?(e.crouch?.08:.18)*run:.5*run;if(!voiceOk(.12,own))return;const o=abus(v,own?null:e.pos,46,.05,false,1.05);if(o)stepSnd(o,surfOf(e),own?.7:1);}
+  const run=clamp(spd/6,.5,1.25),v=own?(e.crouch?.08:.18)*run:.5*run;if(!voiceOk(.12,own,!own&&Math.hypot(e.pos.x-player.pos.x,e.pos.z-player.pos.z)>22))return;const o=abus(v,own?null:e.pos,46,.05,false,1.05);if(o)stepSnd(o,surfOf(e),own?.7:1);}
 const SND={
   step:{d:.12,f:o=>stepSnd(o,'grass')},
   land:{d:.3,f:(o,t)=>{tn(o,t,'sine',110,45,.18,.6);nz(o,t,.16,.35,'lowpass',900,200,.8);nz(o,t,.05,.15,'bandpass',2000,1500,1.2);}},
@@ -692,8 +697,8 @@ const SND={
 SND.reload=SND.magout;
 function sfx(type,vol,pos){if(!actx||!MASTER)return;vol=vol==null?1:vol;try{
   const G=GUNSND[type];
-  if(G){const own=!pos;if(!voiceOk(own?.7:.5,own||vol>.8))return;const o=abus(vol*.55,pos||null,G.r,own?.1:.08,!own,1.25);if(o)gunshot(G,o,own);return;}
-  const S=SND[type];if(!S)return;if(!voiceOk(S.d||.3,S.p||!pos))return;const o=abus(vol,pos||null,S.r||60,S.rv||.06,S.dl&&pos,S.ex);if(o)S.f(o,o.t);}catch(e){}}
+  if(G){const own=!pos;if(!voiceOk(own?.7:.5,own,farOf(pos,G.r)))return;const o=abus(vol*.55,pos||null,G.r,own?.1:.08,!own,1.25);if(o)gunshot(G,o,own);return;}
+  const S=SND[type];if(!S)return;if(!voiceOk(S.d||.3,S.p||!pos,farOf(pos,S.r||60)))return;const o=abus(vol,pos||null,S.r||60,S.rv||.06,S.dl&&pos,S.ex);if(o)S.f(o,o.t);}catch(e){}}
 // Dauerschleifen: Wind, Sturm, Truhen-Schimmer, Bus
 function loopSrc(buf,ft,f,q){const s=actx.createBufferSource();s.buffer=buf;s.loop=true;const fl=actx.createBiquadFilter();fl.type=ft;fl.frequency.value=f;fl.Q.value=q||.7;const g=actx.createGain();g.gain.value=0;s.connect(fl);fl.connect(g);g.connect(MASTER);s.start();return{s,f:fl,g};}
 function initLoops(){LOOPS={};
@@ -741,7 +746,11 @@ function musTick(){const want=musWant(),t=actx.currentTime;
       MUS.duck=actx.createGain();MUS.duck.connect(MUS.g);MUS.send=actx.createGain();MUS.send.connect(MUS.g);if(MDLY){MUS.send.connect(MDLY);MDLY.delayTime.setValueAtTime(3*60/T.bpm/4,t);}MUS.step=0;MUS.next=t+.08;}}
   if(!MUS.g)return;const T=MUS.trk,sd=60/T.bpm/4;if(MUS.next<t-.25)MUS.next=t+.05;
   let n=0;while(MUS.next<t+.4&&n++<24){musStep(T,MUS.step,MUS.next);MUS.next+=sd;MUS.step++;}}
-function audioTick(dt){if(!actx||!LOOPS)return;const t=actx.currentTime,L=LOOPS,P=player,play=state==='play'&&!!P;
+function audioTick(dt){if(!actx)return;audT-=dt;if(audT<=0){audT=.5;try{if(actx.state!=='running'&&actx.state!=='closed')actx.resume();
+    if(ANA&&ANA.getFloatTimeDomainData){ANA.getFloatTimeDomainData(ANAB);let pk=0;for(let i=0;i<ANAB.length;i+=2){const v=ANAB[i];if(!isFinite(v)){audFix++;audioReset();return;}if(v>pk)pk=v;else if(-v>pk)pk=-v;}
+      if(VOC.length>=3&&pk<1e-7){if(++audSil>=4){audSil=0;audFix++;audioReset();return;}}else audSil=0;}}catch(e){}}
+  if(!LOOPS)return;try{audioTick2(dt);}catch(e){}}
+function audioTick2(dt){const t=actx.currentTime,L=LOOPS,P=player,play=state==='play'&&!!P;
   const set=(g,v,tc)=>g.gain.setTargetAtTime(v,t,tc||.15);
   let w=0;if(play&&P.alive){if(P.air==='fall')w=.26;else if(P.air==='glide'||P.air==='launch')w=.1;else if(P.car)w=Math.min(.1,Math.abs(P.car.speed)*.0035);}
   set(L.wind.g,w);L.wind.f.frequency.setTargetAtTime(P&&P.air==='fall'?900:500,t,.3);
@@ -2402,7 +2411,7 @@ setInterval(()=>{if(MP.named&&!MP.inMatch){mpCheckStart();}},250);
 let padOn=false,padPrev=[],padLT=0,padRT=0,padMoved=false,padAds=false,padLastSel=1,padHeld=[];
 function getPad(){const ps=navigator.getGamepads?navigator.getGamepads():[];let f=null;for(const p of ps){if(!p||!p.connected)continue;if(p.mapping==='standard')return p;if(!f)f=p;}return f;}
 function dzone(v,d){const a=Math.abs(v);return a<d?0:Math.sign(v)*Math.min(1,(a-d)/(1-d));}
-function padUse(){if(!padOn){padOn=true;document.body.classList.add('pad');setPC(true);if(state==='play')showMsg('Controller aktiv',1.4);}}
+function padUse(){initAudio();if(!padOn){padOn=true;document.body.classList.add('pad');setPC(true);if(actx&&actx.state!=='running')showMsg('Für Ton einmal klicken oder eine Taste drücken',3);else if(state==='play')showMsg('Controller aktiv',1.4);}}
 function padOff(){if(!padOn)return;padOn=false;document.body.classList.remove('pad');input.padFire=false;if(padMoved){input.jx=0;input.jy=0;padMoved=false;}if(padAds){padAds=false;setZoom(false);}}
 function rumble(s,w,ms){if(!padOn)return;try{const p=getPad();if(p&&p.vibrationActuator&&p.vibrationActuator.playEffect)p.vibrationActuator.playEffect('dual-rumble',{duration:ms,strongMagnitude:s,weakMagnitude:w});}catch(e){}}
 function cycleSlot(d){let i=sel;for(let k=0;k<6;k++){i=(i+d+6)%6;if(i===0||inv[i-1])break;}if(i!==sel)selectSlot(i);}
@@ -2577,7 +2586,7 @@ function frame(now){
 requestAnimationFrame(frame);
 window.__game={th:(x,z)=>terrainH(x,z),lowQ:()=>{lowerQuality();lowerQuality();},dbg:()=>{const a=checkAim();const near=aimRay();return {a:a?{lock:a.lock,name:a.t.name}:null,near,o:_o.toArray().map(v=>+v.toFixed(2)),d:_d.toArray().map(v=>+v.toFixed(3)),p:player.pos.toArray().map(v=>+v.toFixed(2)),auto:SAVE.auto,sel,it:curItem()};},get aim(){return aimLock;},icon,setPitch:v=>{pitch=v;},boom:(x,y,z)=>explode(new V3(x,y,z),player),get quality(){return quality;},drops:()=>chests.filter(c=>c.drop),spawnDrop,throwG:()=>{const o=new V3(player.pos.x,player.pos.y+1.8,player.pos.z);throwGrenade(player,o,new V3(0,6,-10));},info:()=>renderer.info.render,get state(){return state;},get player(){return player;},MP,peerRoom,loadPeerJS,KC,hurtBy:(e,a,s)=>damage(e,a,s),hurt:a=>damage(player,a,null,'boom'),bots:()=>bots,cars:()=>cars,enterCar:c=>enterCar(player,c),exitCar:()=>exitCar(player),input,addPad,aliveCount,storm,builds:()=>builds,chests:()=>chests,items:()=>floorItems,inv:()=>inv,
   build:t=>playerBuild(t),crouch:v=>{crouchTog=!!v;},takeSeat:(c,k)=>takeSeat(player,c,k),leaveSeat:()=>leaveSeat(player),dmgS:(s,d)=>damageStruct(s,d),applyHitE:(e,d)=>applyHit({object:{userData:{kind:'ent',ent:e}},point:new V3(e.pos.x,e.pos.y+1,e.pos.z),distance:5},d,player,1),
-  audio:()=>({ctx:!!actx,st:actx&&actx.state,loops:!!LOOPS,voc:VOC.length,pan:CAN_PAN,rev:!!REV,mus:MUS.on,step:MUS.step}),gfx:l=>applyGfx(l),get GFX(){return GFX;},openSet,sfx:(t,v,p)=>sfx(t,v,p),SND:()=>Object.keys(SND),GUN:()=>Object.keys(GUNSND),tgt:()=>{if(!tgtS)return null;const q=tgtAim?tgtPt.clone():tgtS.obj.position.clone();if(!tgtAim)q.y+=2.6;const w=q.clone();q.project(camera);return {type:tgtS.type,hp:tgtS.hp,max:tgtS.max,car:!!tgtS.car,T:tgtT,aim:tgtAim,w:w.toArray().map(v=>+v.toFixed(2)),ndc:q.toArray().map(v=>+v.toFixed(2)),cam:camera.position.toArray().map(v=>+v.toFixed(2))};},DIFF:()=>DIFF,PHASES,attackers,seatTick,canRide,freeSeat,get crackT(){return crackT;},
+  audioReset,get audFix(){return audFix;},audio:()=>({ctx:!!actx,st:actx&&actx.state,loops:!!LOOPS,voc:VOC.length,pan:CAN_PAN,rev:!!REV,mus:MUS.on,step:MUS.step}),gfx:l=>applyGfx(l),get GFX(){return GFX;},openSet,sfx:(t,v,p)=>sfx(t,v,p),SND:()=>Object.keys(SND),GUN:()=>Object.keys(GUNSND),tgt:()=>{if(!tgtS)return null;const q=tgtAim?tgtPt.clone():tgtS.obj.position.clone();if(!tgtAim)q.y+=2.6;const w=q.clone();q.project(camera);return {type:tgtS.type,hp:tgtS.hp,max:tgtS.max,car:!!tgtS.car,T:tgtT,aim:tgtAim,w:w.toArray().map(v=>+v.toFixed(2)),ndc:q.toArray().map(v=>+v.toFixed(2)),cam:camera.position.toArray().map(v=>+v.toFixed(2))};},DIFF:()=>DIFF,PHASES,attackers,seatTick,canRide,freeSeat,get crackT(){return crackT;},
   setYaw:v=>{yaw=v;},jump:()=>playerJump(),interact,select:selectSlot,get act(){return actTarget;},ammo:()=>ammoRes,
   sim:s=>{for(let t=0;t<s&&state!=='menu';t+=.05){update(.05);updateCamera(.05);if(state!=='play')break;}return{t:gameTime,alive:aliveCount(),state};}};
 })();
