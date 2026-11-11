@@ -2302,36 +2302,230 @@ function update(dt){
 }
 
 /* ================= Mehrspieler ================= */
-/* Direktverbindung ohne Account (WebRTC über PeerJS): der Erste im Raum ist Host und verteilt die Zustände */
+/* Der Erste im Raum ist Host und verteilt die Zustände an alle.
+   Weg 1: Direktverbindung (WebRTC über PeerJS), schnell und ohne eigenen Server.
+   Weg 2: Klappt die nicht innerhalb von 5 s (Handynetz, Schul-WLAN, Firewall), laufen die Daten verschlüsselt
+   über einen öffentlichen MQTT-Server (Relay). Wird die Direktverbindung später doch fertig, wechselt der Gast zurück. */
 function loadPeerJS(){return new Promise((res,rej)=>{if(window.Peer)return res();const urls=['peerjs.min.js','https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js','https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js'];let i=0;
   const next=()=>{if(window.Peer)return res();if(i>=urls.length)return rej(new Error('peerjs'));const s=document.createElement('script');s.src=urls[i++];s.onload=()=>window.Peer?res():next();s.onerror=()=>{s.remove();next();};document.head.appendChild(s);};next();});}
-function peerOpts(){const o={debug:0,config:{iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},{urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'}]}};
+function peerOpts(){const o={debug:0,config:{iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun.cloudflare.com:3478'}]}};
   const ps=new URLSearchParams(location.search).get('ps');if(ps){const[h,p]=ps.split(':');Object.assign(o,{host:h,port:+p||9000,path:'/',secure:false});}return o;}
-function peerRoom(code){return new Promise((res,rej)=>{const hostId='sturmfall-v1-'+code;let peer=null,myId=null,isHost=false,done=false,hostConn=null;const conns=new Map(),others=new Map(),hs=[],my={},sent={};
-  const fail=e=>{if(!done){done=true;try{peer&&peer.destroy();}catch(_){}rej(e);}};const tm=setTimeout(()=>fail({code:'timeout'}),60000);
+
+/* Relay-Server: öffentlich, ohne Account. Der Host lauscht auf allen, ein Gast nimmt den ersten, über den der Host antwortet. */
+const RELAYS=[
+  ['wss://broker.hivemq.com:8884/mqtt'],
+  ['wss://test.mosquitto.org:8081/'],
+  ['wss://public.cloud.shiftr.io','public','public'] // Port 443, kommt auch durch strenge Firewalls
+];
+const relayOK=()=>!!(window.WebSocket&&window.crypto&&crypto.subtle);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+/* Kleiner MQTT-3.1.1-Client über WebSocket (nur QoS 0) */
+function mqttOpen(url,user,pass,onMsg){return new Promise((res,rej)=>{
+  const E=new TextEncoder();
+  const str=s=>{const b=E.encode(s);return[b.length>>8,b.length&255,...b];};
+  const packet=(head,body)=>{const len=[];let n=body.length;do{let d=n%128;n=Math.floor(n/128);if(n)d|=128;len.push(d);}while(n);
+    const u=new Uint8Array(1+len.length+body.length);u[0]=head;u.set(len,1);u.set(body,1+len.length);return u;};
+  let ws=null,ok=false,ping=0,pid=1,buf=new Uint8Array(0);
+  const tx=u=>{if(ws&&ws.readyState===1)try{ws.send(u);}catch(_){}};
+  const to=setTimeout(()=>{try{ws&&ws.close();}catch(_){}rej(new Error('relay timeout'));},4000);
+  const api={onclose:null,
+    get open(){return ok&&ws.readyState===1;},
+    sub(topic){tx(packet(0x82,[pid>>8,pid&255,...str(topic),0]));pid=pid%65535+1;},
+    pub(topic,bytes){const t=str(topic),b=new Uint8Array(t.length+bytes.length);b.set(t);b.set(bytes,t.length);tx(packet(0x30,b));},
+    close(){clearInterval(ping);tx(new Uint8Array([0xE0,0]));try{ws.close();}catch(_){}}};
+  try{ws=new WebSocket(url,['mqtt']);}catch(e){clearTimeout(to);rej(e);return;}
+  ws.binaryType='arraybuffer';
+  ws.onopen=()=>{let flags=2,payload=str('sf'+Math.random().toString(36).slice(2,12));
+    if(user){flags|=0x80;payload=payload.concat(str(user));}
+    if(pass){flags|=0x40;payload=payload.concat(str(pass));}
+    tx(packet(0x10,[...str('MQTT'),4,flags,0,60,...payload]));};
+  ws.onmessage=ev=>{
+    const d=new Uint8Array(ev.data),nb=new Uint8Array(buf.length+d.length);nb.set(buf);nb.set(d,buf.length);buf=nb;
+    while(buf.length>1){
+      let i=1,mul=1,len=0,c;
+      do{if(i>=buf.length)return;c=buf[i++];len+=(c&127)*mul;mul*=128;}while(c&128);
+      if(buf.length<i+len)return;
+      const head=buf[0],body=buf.slice(i,i+len);buf=buf.slice(i+len);
+      const type=head>>4;
+      if(type===2){clearTimeout(to);if(body[1]){try{ws.close();}catch(_){}rej(new Error('relay refused'));return;}
+        ok=true;ping=setInterval(()=>tx(new Uint8Array([0xC0,0])),25000);res(api);}
+      else if(type===3){const tl=body[0]<<8|body[1],skip=(head>>1&3)?2:0;try{onMsg(body.subarray(2+tl+skip));}catch(_){}}
+    }};
+  ws.onclose=()=>{clearInterval(ping);clearTimeout(to);if(!ok){rej(new Error('relay closed'));return;}ok=false;if(api.onclose)api.onclose();};
+});}
+
+/* Schlüssel und Kanal kommen aus dem Raum-Code: wer den Code kennt, kann mitlesen, sonst niemand */
+async function relayKeys(roomId){
+  const E=new TextEncoder(),hash=async s=>new Uint8Array(await crypto.subtle.digest('SHA-256',E.encode(s)));
+  const t=await hash('sturmfall-topic|'+roomId);
+  const key=await crypto.subtle.importKey('raw',await hash('sturmfall-key|'+roomId),'AES-GCM',false,['encrypt','decrypt']);
+  return{
+    base:'sturmfall/r1/'+Array.from(t.slice(0,12),x=>x.toString(16).padStart(2,'0')).join(''),
+    async seal(obj){const iv=crypto.getRandomValues(new Uint8Array(12));
+      const c=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},key,E.encode(JSON.stringify(obj))));
+      const u=new Uint8Array(12+c.length);u.set(iv);u.set(c,12);return u;},
+    async open(b){return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b.slice(0,12)},key,b.slice(12))));}
+  };
+}
+
+/* Sammelt Nachrichten und schickt sie gebündelt, höchstens ca. 9 Pakete pro Sekunde (öffentliche Server drosseln sonst) */
+function relaySender(mq,K,topic,me){
+  let q=[],timer=0,last=0,chain=Promise.resolve();
+  const put=env=>{last=performance.now();chain=chain.then(()=>K.seal(env)).then(b=>{if(mq.open)mq.pub(topic,b);}).catch(()=>{});return chain;};
+  const flush=()=>{timer=0;const env={f:me,q};q=[];put(env);};
+  return{
+    push(m){q.push(m);if(!timer)timer=setTimeout(flush,110);},
+    say(extra){return put(Object.assign({f:me,q:[]},extra));},
+    beat(){if(!timer&&performance.now()-last>2500)flush();},
+    stop(){clearTimeout(timer);timer=0;q=[];}
+  };
+}
+
+function peerRoom(code){return new Promise((res,rej)=>{
+  const hostId='sturmfall-v1-'+code;
+  let peer=null,myId=null,isHost=false,done=false,left=false,hostConn=null,rc=null;
+  const conns=new Map(),others=new Map(),hs=[],my={},sent={},hub=[];
   const notify=()=>{for(const f of hs)try{f({});}catch(_){}};
   const apply=(id,d)=>{let p=others.get(id);if(!p){p={};others.set(id,p);}for(const k in d){if(d[k]===null)delete p[k];else p[k]=d[k];}};
-  const toAll=(m,ex)=>{for(const[id,c]of conns)if(id!==ex&&c.open)try{c.send(m);}catch(_){}};
-  const api={get isHost(){return isHost;},
+  const send=(c,m)=>{if(c&&c.open)try{c.send(m);}catch(_){}};
+  const toAll=(m,ex)=>{
+    for(const[id,c]of conns)if(id!==ex&&!c.relay)send(c,m);
+    for(const b of hub)if(b.out&&b.vcs.size)b.out.push([null,ex||null,m]); // Relay-Gäste: ein Paket pro Server für alle
+  };
+  const fullMsg=()=>{const full=[[myId,my]];for(const[id,p]of others)full.push([id,p]);return{full};};
+  const resync=()=>{for(const k in sent)delete sent[k];api.presence(Object.assign({},my));};
+  const tick=setInterval(()=>{ // Herzschlag und Zeitlimit fürs Relay
+    if(left)return;const now=performance.now();
+    if(isHost){for(const b of hub){if(b.out&&b.vcs.size)b.out.beat();for(const[id,vc]of b.vcs)if(now-vc.seen>20000){b.vcs.delete(id);dropGuest(id,vc);}}}
+    else if(rc&&rc.vc&&hostConn===rc.vc){if(rc.out)rc.out.beat();if(now-rc.seen>20000){const r=rc;rc=null;r.vc.open=false;r.end(false);lostHost();}}
+  },2000);
+  const cleanup=()=>{
+    left=true;clearInterval(tick);
+    if(rc){rc.end(true);rc=null;}
+    for(const b of hub){const mq=b.mq,out=b.out;b.mq=b.out=null;if(!mq)continue;if(out){out.stop();out.say({b:1}).then(()=>mq.close());}else mq.close();}
+    try{peer&&peer.destroy();}catch(_){}
+  };
+  const fail=e=>{if(!done){done=true;cleanup();rej(e);}};
+  const tm=setTimeout(()=>fail({code:'timeout'}),60000);
+  const ok=()=>{if(!done){done=true;clearTimeout(tm);res(api);}};
+  const api={get isHost(){return isHost;},get relay(){return!!(hostConn&&hostConn.relay);},
     presence(patch){const d={};let n=0;for(const k in patch){const j=JSON.stringify(patch[k]===undefined?null:patch[k]);if(sent[k]!==j){sent[k]=j;d[k]=patch[k]===undefined?null:patch[k];n++;}if(patch[k]===null||patch[k]===undefined)delete my[k];else my[k]=patch[k];}
       if(n){if(isHost)toAll({f:myId,d});else if(hostConn&&hostConn.open)try{hostConn.send({d});}catch(_){}}notify();return Promise.resolve();},
     peers(){const a=[{peer:myId,sameTab:true,isMe:true,presence:Object.assign({},my)}];for(const[id,p]of others)a.push({peer:id,sameTab:false,isMe:false,presence:p});return a;},
     onPeers(f){hs.push(f);setTimeout(()=>f({}),0);return()=>{removeFrom(hs,f);};},
-    leave(){try{peer&&peer.destroy();}catch(_){}others.clear();return Promise.resolve();}};
-  const ok=()=>{if(!done){done=true;clearTimeout(tm);res(api);}};
-  function asHost(gen){gen=gen||0;peer=new Peer(hostId+(gen?'-'+gen:''),peerOpts());
-    peer.on('open',id=>{myId=id;isHost=true;ok();});
-    peer.on('connection',c=>{c.on('open',()=>{conns.set(c.peer,c);const full=[[myId,my]];for(const[id,p]of others)full.push([id,p]);try{c.send({full});}catch(_){}});
-      c.on('data',m=>{if(m&&m.d&&typeof m.d==='object'){apply(c.peer,m.d);toAll({f:c.peer,d:m.d},c.peer);notify();}});
-      c.on('close',()=>{conns.delete(c.peer);others.delete(c.peer);toAll({left:c.peer});notify();});});
-    peer.on('error',e=>{if(e&&e.type==='unavailable-id'){try{peer.destroy();}catch(_){}asClient(gen);}else if(!done)fail({code:e&&e.type||'p2p'});});}
-  function asClient(gen){peer=new Peer(undefined,peerOpts());let opened=false;const next=gone=>{if(opened||done)return;clearTimeout(ct);try{peer.destroy();}catch(_){}if(gone&&gen<3)asHost(gen+1);else fail({code:'host_unreachable'});};let ct=0;
-    peer.on('open',id=>{ct=setTimeout(()=>next(false),20000);myId=id;hostConn=peer.connect(hostId+(gen?'-'+gen:''),{reliable:true});
-      hostConn.on('open',()=>{opened=true;clearTimeout(ct);for(const k in sent)delete sent[k];api.presence(Object.assign({},my));ok();});
-      hostConn.on('data',m=>{if(!m)return;if(m.full){for(const[id,p]of m.full)if(id!==myId)others.set(id,Object.assign({},p));}else if(m.left)others.delete(m.left);else if(m.f&&m.d)apply(m.f,m.d);notify();});
-      hostConn.on('close',()=>{others.clear();notify();if(done)showMsg('Verbindung zum Host getrennt',3);});});
-    peer.on('error',e=>{if(e&&e.type==='peer-unavailable')next(true);else if(!done&&!opened)next(false);});}
-  asHost(0);});}
+    leave(){cleanup();others.clear();return Promise.resolve();}};
+
+  /* ---- Host: Gäste kommen direkt (WebRTC) oder über das Relay ---- */
+  const addGuest=(id,c)=>{const old=conns.get(id);if(old&&old!==c&&old.relay)old.b.vcs.delete(id);conns.set(id,c);send(c,fullMsg());};
+  const fromGuest=(id,m)=>{if(m&&m.d&&typeof m.d==='object'){apply(id,m.d);toAll({f:id,d:m.d},id);notify();}};
+  const dropGuest=(id,c)=>{if(conns.get(id)!==c)return;conns.delete(id);others.delete(id);toAll({left:id});notify();};
+  function hubStart(roomId){
+    if(!relayOK())return;
+    relayKeys(roomId).then(K=>{if(left)return;for(const R of RELAYS){const b={R,mq:null,out:null,vcs:new Map()};hub.push(b);hubLink(b,K);}}).catch(()=>{});
+  }
+  function hubLink(b,K){
+    if(left)return;let rx=Promise.resolve();
+    mqttOpen(b.R[0],b.R[1],b.R[2],data=>{rx=rx.then(()=>K.open(data)).then(env=>hubIn(b,env)).catch(()=>{});})
+      .then(mq=>{
+        if(left){mq.close();return;}
+        b.mq=mq;b.out=relaySender(mq,K,K.base+'/d',myId);mq.sub(K.base+'/u');
+        mq.onclose=()=>{if(left)return;b.mq=b.out=null;for(const[id,vc]of b.vcs){b.vcs.delete(id);dropGuest(id,vc);}setTimeout(()=>hubLink(b,K),3000);};
+      })
+      .catch(()=>setTimeout(()=>hubLink(b,K),20000));
+  }
+  function hubIn(b,env){
+    if(left||!env||typeof env.f!=='string'||env.f===myId)return;
+    const id=env.f.slice(0,80),cur=conns.get(id);
+    if(cur&&!cur.relay)return; // Direktverbindung hat Vorrang
+    let vc=b.vcs.get(id);
+    if(env.b){if(vc){b.vcs.delete(id);dropGuest(id,vc);}return;}
+    if(!vc||cur!==vc){vc={relay:true,open:true,b,seen:0,send:m=>{if(b.out)b.out.push([id,null,m]);}};b.vcs.set(id,vc);addGuest(id,vc);}
+    else if(env.h)send(vc,fullMsg()); // Hallo kam doppelt: Stand nochmal schicken
+    vc.seen=performance.now();
+    if(Array.isArray(env.q))for(const m of env.q)fromGuest(id,m);
+  }
+  function asHost(gen){
+    const roomId=hostId+(gen?'-'+gen:'');
+    const me=peer=new Peer(roomId,peerOpts());let taken=false;
+    me.on('open',id=>{myId=id;isHost=true;ok();hubStart(roomId);});
+    me.on('connection',c=>{
+      c.on('open',()=>addGuest(c.peer,c));
+      c.on('data',m=>{if(conns.get(c.peer)===c)fromGuest(c.peer,m);});
+      c.on('close',()=>dropGuest(c.peer,c));
+    });
+    /* Verbindung zum Vermittlungsserver weg (z. B. iPad kurz im Hintergrund): neu anmelden, damit weitere Spieler beitreten können */
+    me.on('disconnected',()=>{if(done&&!left&&!taken)setTimeout(()=>{if(!left&&!taken&&me.disconnected&&!me.destroyed)try{me.reconnect();}catch(_){}},3000);});
+    me.on('error',e=>{const t=e&&e.type;
+      if(done){if(t==='unavailable-id')taken=true;return;}
+      if(t==='unavailable-id'){try{me.destroy();}catch(_){}asClient(gen);}
+      else fail({code:t||'p2p'});});
+  }
+
+  /* ---- Gast ---- */
+  const fromHost=m=>{
+    if(!m)return;
+    if(m.full){others.clear();for(const[id,p]of m.full)if(id!==myId)others.set(id,Object.assign({},p));resync();}
+    else if(m.left)others.delete(m.left);
+    else if(m.f&&m.d)apply(m.f,m.d);
+    notify();
+  };
+  const lostHost=()=>{others.clear();notify();if(done&&!left)showMsg('Verbindung zum Host getrennt',3);};
+  function relayJoin(roomId,use){
+    if(!relayOK()||left)return null;
+    const st={dead:false,mq:null,out:null,vc:null,seen:0,
+      end(bye){if(st.dead)return;st.dead=true;const mq=st.mq,out=st.out;st.mq=st.out=null;if(!mq)return;if(out)out.stop();if(bye&&out)out.say({b:1}).then(()=>mq.close());else mq.close();}};
+    relayKeys(roomId).then(async K=>{
+      for(const R of RELAYS){
+        if(st.dead)return;
+        let got=false,rx=Promise.resolve();
+        const vc={relay:true,open:true,send:m=>{if(st.out)st.out.push(m);}};
+        const mq=await mqttOpen(R[0],R[1],R[2],data=>{rx=rx.then(()=>K.open(data)).then(env=>{
+          if(st.dead||!env||!Array.isArray(env.q))return;
+          st.seen=performance.now();
+          if(env.b){if(hostConn===vc){if(rc===st)rc=null;vc.open=false;st.end(false);lostHost();}return;} // Host hat den Raum verlassen
+          for(const x of env.q){
+            if(!Array.isArray(x)||(x[0]!=null&&x[0]!==myId)||x[1]===myId)continue;
+            const m=x[2];
+            if(m&&m.full&&!got){got=true;st.vc=vc;use(vc);}
+            if(hostConn===vc)fromHost(m);
+          }}).catch(()=>{});}).catch(()=>null);
+        if(!mq)continue;
+        if(st.dead){mq.close();return;}
+        st.mq=mq;st.out=relaySender(mq,K,K.base+'/u',myId);mq.sub(K.base+'/d');
+        for(let i=0;i<3&&!got&&!st.dead;i++){st.out.say({h:1});await sleep(1000);}
+        if(got){mq.onclose=()=>{if(hostConn===vc&&vc.open){vc.open=false;if(rc===st)rc=null;lostHost();}};return;}
+        if(st.out)st.out.stop();mq.close();st.mq=st.out=null;
+      }
+    }).catch(()=>{});
+    return st;
+  }
+  function asClient(gen){
+    const roomId=hostId+(gen?'-'+gen:'');
+    peer=new Peer(undefined,peerOpts());
+    let opened=false,giveUp=0,relayT=0;
+    const next=gone=>{if(opened||done)return;clearTimeout(giveUp);clearTimeout(relayT);if(rc){rc.end(false);rc=null;}try{peer.destroy();}catch(_){}
+      if(gone&&gen<3)asHost(gen+1);else fail({code:'host_unreachable'});};
+    // Verbindung zum Host übernehmen. Direkt schlägt Relay, nie umgekehrt.
+    const use=c=>{
+      if(left||hostConn===c||(hostConn&&!hostConn.relay&&c.relay))return;
+      hostConn=c;
+      if(!c.relay&&rc){rc.end(true);rc=null;}
+      if(!opened){opened=true;clearTimeout(giveUp);clearTimeout(relayT);ok();}
+    };
+    const tryRelay=()=>{clearTimeout(relayT);if(!rc&&!opened&&myId)rc=relayJoin(roomId,use);};
+    peer.on('open',id=>{
+      myId=id;giveUp=setTimeout(()=>next(false),28000);
+      const dc=peer.connect(roomId,{reliable:true});
+      dc.on('open',()=>use(dc));
+      dc.on('data',m=>{if(hostConn===dc)fromHost(m);});
+      dc.on('close',()=>{if(hostConn===dc)lostHost();});
+      relayT=setTimeout(tryRelay,5000);
+    });
+    peer.on('error',e=>{if(e&&e.type==='peer-unavailable')next(true);else if(!done&&!opened){if(myId)tryRelay();else next(false);}});
+  }
+  asHost(0);
+});}
 
 const clean=t=>String(t||'').replace(/[^\p{L}\p{N} _.-]/gu,'').trim().slice(0,14);
 const R2=x=>Math.round(x*100)/100;
@@ -2403,8 +2597,8 @@ function mpCheckStart(){if(!MP.named||MP.inMatch||state==='play')return;
     $('start').classList.remove('mpmode');initAudio();newGame();mpPush();lockMouse();showMsg('Mehrspieler-Runde gestartet – viel Glück!',3);return;}}
 async function mpJoin(){
   const code=($('mpCode').value||'klasse').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,12)||'klasse';MP.name=clean($('mpName').value)||'Spieler';$('mpName').value=MP.name;$('mpCode').value=code;SAVE.mpName=MP.name;SAVE.mpCode=code;saveNow();
-  mpStatus('Verbinde …');try{if(MP.named)await MP.named.leave();try{await loadPeerJS();MP.named=await peerRoom(code);}catch(e1){if(MP.room&&!(e1&&e1.code==='host_unreachable'))MP.named=await MP.room.join('sf-'+code);else throw e1;}}catch(e){MP.named=null;mpStatus(e&&e.code==='host_unreachable'?'Der Host des Raums ist nicht erreichbar (evtl. blockiert das WLAN Direktverbindungen). Anderen Code probieren oder Hotspot nutzen.':'Verbindung fehlgeschlagen ('+((e&&e.code)||(e&&e.message)||'Fehler')+'). Internet prüfen und nochmal versuchen.');return;}
-  MP.code=code;MP.ph='lobby';MP.named.onPeers(()=>mpRender());mpPush();mpRender();mpStatus('Raum „'+code+'“'+(MP.named.isHost?' (du bist Host – bleib bis zum Ende online)':'')+' – alle mit diesem Code landen in derselben Runde.');}
+  mpStatus('Verbinde …');try{if(MP.named)await MP.named.leave();try{await loadPeerJS();MP.named=await peerRoom(code);}catch(e1){if(MP.room&&!(e1&&e1.code==='host_unreachable'))MP.named=await MP.room.join('sf-'+code);else throw e1;}}catch(e){MP.named=null;mpStatus(e&&e.code==='host_unreachable'?'Der Host antwortet nicht, weder direkt noch über Relay. Ist er noch im Raum? Sonst einen neuen Code nehmen.':'Verbindung fehlgeschlagen ('+((e&&e.code)||(e&&e.message)||'Fehler')+'). Internet prüfen und nochmal versuchen.');return;}
+  MP.code=code;MP.ph='lobby';MP.named.onPeers(()=>mpRender());mpPush();mpRender();mpStatus('Raum „'+code+'“'+(MP.named.isHost?' (du bist Host – bleib bis zum Ende online)':'')+' – alle mit diesem Code landen in derselben Runde.'+(MP.named.relay?' Verbunden über Relay.':''));}
 function mpToLobby(){MP.inMatch=false;MP.ph='lobby';mpPush();engineStop();state='menu';$('end').classList.add('hidden');$('hud').classList.add('hidden');$('start').classList.remove('hidden');$('start').classList.add('mpmode');confOn=false;cctx.clearRect(0,0,conf.width,conf.height);mpRender();}
 setInterval(()=>{if(MP.named&&!MP.inMatch){mpCheckStart();}},250);
 /* ================= Controller ================= */
