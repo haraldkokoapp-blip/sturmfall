@@ -2510,7 +2510,7 @@ function peerRoom(code){return new Promise((res,rej)=>{
     const use=c=>{
       if(left||hostConn===c||(hostConn&&!hostConn.relay&&c.relay))return;
       hostConn=c;
-      if(!c.relay&&rc){rc.end(true);rc=null;}
+      if(!c.relay&&rc){rc.end(false);rc=null;} // ohne Tschüss, sonst wirft der Host den Gast kurz raus
       if(!opened){opened=true;clearTimeout(giveUp);clearTimeout(relayT);ok();}
     };
     const tryRelay=()=>{clearTimeout(relayT);if(!rc&&!opened&&myId)rc=relayJoin(roomId,use);};
