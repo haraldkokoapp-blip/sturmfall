@@ -2532,6 +2532,48 @@ function peerRoom(code){return new Promise((res,rej)=>{
   asHost(0);
 });}
 
+/* Mehrspieler über den eigenen Server (Cloudflare Worker, siehe server/worker.js). Das ist jetzt der Normalweg:
+   Jeder Spieler hält nur eine WebSocket-Verbindung zum Raum, egal in welchem Netz. Bricht sie kurz ab, verbindet das Spiel neu,
+   ohne den Raum zu verlassen. Ist der Server nicht erreichbar, nimmt mpJoin die Direktverbindung (peerRoom). */
+const MP_SERVER=(()=>{const q=new URLSearchParams(location.search).get('mp');if(q)return q.replace(/\/$/,'');
+  if(/\.workers\.dev$/.test(location.hostname)||location.port==='8787')return location.origin.replace(/^http/,'ws');
+  return 'wss://sturmfall.SUBDOMAIN.workers.dev';})();
+function wsRoom(code){return new Promise((res,rej)=>{
+  const me='p'+Math.random().toString(36).slice(2,10)+Date.now().toString(36);
+  let ws=null,host=null,done=false,left=false,tries=0,lastMsg=performance.now();
+  const others=new Map(),hs=[],my={},sent={};
+  const notify=()=>{for(const f of hs)try{f({});}catch(_){}};
+  const tx=m=>{if(ws&&ws.readyState===1)try{ws.send(JSON.stringify(m));}catch(_){}};
+  const bye=()=>tx({t:'bye'});
+  const api={get isHost(){return host===me;},relay:false,server:true,
+    presence(patch){const d={};let n=0;for(const k in patch){const j=JSON.stringify(patch[k]===undefined?null:patch[k]);if(sent[k]!==j){sent[k]=j;d[k]=patch[k]===undefined?null:patch[k];n++;}if(patch[k]===null||patch[k]===undefined)delete my[k];else my[k]=patch[k];}
+      if(n)tx({t:'p',d});notify();return Promise.resolve();},
+    peers(){const a=[{peer:me,sameTab:true,isMe:true,presence:Object.assign({},my)}];for(const[id,p]of others)a.push({peer:id,sameTab:false,isMe:false,presence:p});return a;},
+    onPeers(f){hs.push(f);setTimeout(()=>f({}),0);return()=>{removeFrom(hs,f);};},
+    leave(){if(left)return Promise.resolve();left=true;clearInterval(ping);window.removeEventListener('pagehide',bye);bye();try{ws&&ws.close(1000);}catch(_){}others.clear();return Promise.resolve();}};
+  const fail=e=>{if(done)return;done=true;left=true;clearTimeout(to);clearInterval(ping);window.removeEventListener('pagehide',bye);try{ws&&ws.close();}catch(_){}rej(e);};
+  const onMsg=ev=>{if(left)return;lastMsg=performance.now();let m;try{m=JSON.parse(ev.data);}catch(_){return;}
+    if(m.t==='hello'){host=m.host;others.clear();for(const[id,p]of(m.full||[]))if(id!==me)others.set(id,Object.assign({},p));
+      const again=done;tries=0;if(!done){done=true;clearTimeout(to);res(api);}
+      for(const k in sent)delete sent[k];api.presence(Object.assign({},my)); // eigenen Stand komplett schicken, auch nach Wiederverbinden
+      if(again)showMsg('Wieder verbunden',1.5);notify();}
+    else if(m.t==='p'&&m.f&&m.d){let p=others.get(m.f);if(!p){p={};others.set(m.f,p);}for(const k in m.d){if(m.d[k]===null)delete p[k];else p[k]=m.d[k];}notify();}
+    else if(m.t==='left'){others.delete(m.id);notify();}
+    else if(m.t==='host'){host=m.id;notify();}
+    else if(m.t==='roomfull')fail({code:'room_full'});};
+  const connect=()=>{if(left)return;let w;try{w=ws=new WebSocket(MP_SERVER+'/room/'+code+'?id='+me);}catch(e){fail({code:'server'});return;}
+    w.onmessage=onMsg;
+    w.onclose=ev=>{if(left||w!==ws)return;if(!done){fail({code:'server'});return;}
+      if(ev.code===4000||ev.code===4001){left=true;others.clear();notify();showMsg('Verbindung zum Raum beendet',3);return;}
+      ws=null;showMsg('Verbindung weg, verbinde neu …',2);setTimeout(connect,Math.min(5000,400*Math.pow(2,tries++)));};};
+  const to=setTimeout(()=>fail({code:'server_timeout'}),7000);
+  // Herzschlag: hält die Leitung offen und erkennt tote Verbindungen (dann sofort neu verbinden)
+  const ping=setInterval(()=>{if(left||!done)return;tx({t:'ping'});
+    if(ws&&ws.readyState===1&&performance.now()-lastMsg>30000){const old=ws;ws=null;try{old.close();}catch(_){}connect();}},10000);
+  window.addEventListener('pagehide',bye);
+  connect();
+});}
+
 const clean=t=>String(t||'').replace(/[^\p{L}\p{N} _.-]/gu,'').trim().slice(0,14);
 const R2=x=>Math.round(x*100)/100;
 function mpFx(type,a,b,snd){MP.fxl.push(type?[++MP.fxSeq,1,R2(a.x),R2(a.y),R2(a.z)]:[++MP.fxSeq,0,R2(a.x),R2(a.y),R2(a.z),R2(b.x),R2(b.y),R2(b.z),snd||'ar']);if(MP.fxl.length>6)MP.fxl.shift();}
@@ -2602,7 +2644,10 @@ function mpCheckStart(){if(!MP.named||MP.inMatch||state==='play')return;
     $('start').classList.remove('mpmode');initAudio();newGame();mpPush();lockMouse();showMsg('Mehrspieler-Runde gestartet – viel Glück!',3);return;}}
 async function mpJoin(){
   const code=($('mpCode').value||'klasse').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,12)||'klasse';MP.name=clean($('mpName').value)||'Spieler';$('mpName').value=MP.name;$('mpCode').value=code;SAVE.mpName=MP.name;SAVE.mpCode=code;saveNow();
-  mpStatus('Verbinde …');try{if(MP.named)await MP.named.leave();try{await loadPeerJS();MP.named=await peerRoom(code);}catch(e1){if(MP.room&&!(e1&&e1.code==='host_unreachable'))MP.named=await MP.room.join('sf-'+code);else throw e1;}}catch(e){MP.named=null;mpStatus(e&&e.code==='host_unreachable'?'Der Host antwortet nicht, weder direkt noch über Relay. Ist er noch im Raum? Sonst einen neuen Code nehmen.':'Verbindung fehlgeschlagen ('+((e&&e.code)||(e&&e.message)||'Fehler')+'). Internet prüfen und nochmal versuchen.');return;}
+  mpStatus('Verbinde …');try{if(MP.named)await MP.named.leave();
+    try{MP.named=await wsRoom(code);}catch(e0){if(e0&&e0.code==='room_full')throw e0; // Server nicht erreichbar: Direktverbindung als Notweg
+      try{await loadPeerJS();MP.named=await peerRoom(code);}catch(e1){if(MP.room&&!(e1&&e1.code==='host_unreachable'))MP.named=await MP.room.join('sf-'+code);else throw e1;}}
+  }catch(e){MP.named=null;mpStatus(e&&e.code==='room_full'?'Der Raum ist voll (40 Spieler). Nimm einen anderen Code.':e&&e.code==='host_unreachable'?'Der Host antwortet nicht, weder direkt noch über Relay. Ist er noch im Raum? Sonst einen neuen Code nehmen.':'Verbindung fehlgeschlagen ('+((e&&e.code)||(e&&e.message)||'Fehler')+'). Internet prüfen und nochmal versuchen.');return;}
   MP.code=code;MP.ph='lobby';MP.named.onPeers(()=>mpRender());mpPush();mpRender();mpStatus('Raum „'+code+'“'+(MP.named.isHost?' (du bist Host – bleib bis zum Ende online)':'')+' – alle mit diesem Code landen in derselben Runde.'+(MP.named.relay?' Verbunden über Relay.':''));}
 function mpToLobby(){MP.inMatch=false;MP.ph='lobby';mpPush();engineStop();state='menu';$('end').classList.add('hidden');$('hud').classList.add('hidden');$('start').classList.remove('hidden');$('start').classList.add('mpmode');confOn=false;cctx.clearRect(0,0,conf.width,conf.height);mpRender();}
 setInterval(()=>{if(MP.named&&!MP.inMatch){mpCheckStart();}},250);
