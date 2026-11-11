@@ -5,7 +5,8 @@
   "name": "sturmfall",
   "main": "server/worker.js",
   "compatibility_date": "2025-11-01",
-  "assets": { "directory": ".", "binding": "ASSETS" },
+  "build": { "command": "node server/build.mjs" },
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
   "durable_objects": {
     "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
   },
