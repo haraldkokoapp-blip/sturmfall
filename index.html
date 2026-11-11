@@ -810,7 +810,7 @@ let yaw=0,pitch=-.2,sel=0,inv=[null,null,null,null,null],ammoRes={leicht:0,mitte
 let bloom=0,camKick=0,killMarkT=0;
 let TEAM=1,reviveTgt=null,reviveP=0,wipeT=0;const TMC=['#4fc3ff','#ffd23f','#7dff8a','#ff7ad9'];
 let useT=0,useDur=0,flashT=0,hitT=0,msgT=0,kickT=0,nameT=0,poiT=0,curPoi=null,cullT=0,actTarget=null,lastFireDown=false,warnT=0;
-let aimLock=null,assistT=null,autoT=0,sprinting=false,coyote=0,jumpBuf=0,stepT=0,recoilKick=0,lastShotT=-9,camDip=0,camY=null,slowT=0,lowT=0,sparkT=0,actShown=null,streak=0,lastKillT=-99,chestsOpened=0,shakeT=0,fogK=0;const grenades=[];
+let aimLock=null,assistT=null,assistSince=0,autoT=0,sprinting=false,coyote=0,jumpBuf=0,stepT=0,recoilKick=0,lastShotT=-9,camDip=0,camY=null,slowT=0,lowT=0,sparkT=0,actShown=null,streak=0,lastKillT=-99,chestsOpened=0,shakeT=0,fogK=0;const grenades=[];
 const DIFFS=[{acc:1.5,dmg:1,react:.8,fort:.2,melee:1,cap:2,settle:2},{acc:1.05,dmg:1,react:.4,fort:.4,melee:1,cap:3,settle:1.5},{acc:.8,dmg:1,react:.15,fort:.6,melee:1,cap:4,settle:1}];let DIFF=DIFFS[1];
 const storm={phase:0,mode:'wait',t:0,cx:0,cz:0,r:620,fx:0,fz:0,fr:620,tx:0,tz:0,tr:620,tick:0};
 const PHASES=[{w:60,s:50,r:400,d:1},{w:50,s:45,r:270,d:1},{w:45,s:40,r:180,d:2},{w:40,s:35,r:115,d:3},{w:35,s:30,r:72,d:5},{w:30,s:25,r:40,d:7},{w:25,s:22,r:18,d:9},{w:20,s:20,r:6,d:11},{w:10,s:25,r:0,d:14}];
@@ -2137,8 +2137,10 @@ function updatePlayer(dt){
   fireCd-=dt;if(swingT>0)swingT-=dt;if(warnT>0)warnT-=dt;
   if(reloadT>0){reloadT-=dt;const rp=1-reloadT/(reloadTot||1);if(reloadSt===0&&rp>.6){reloadSt=1;sfx('magin');}if(reloadSt===1&&rp>.84){reloadSt=2;const ri=curItem();if(ri&&(ri.id==='shotgun'||ri.id==='sniper'||ri.id==='ar'))sfx('rack',.9);}if(reloadT<=0){reloadT=0;finishReload();}}
   if(useDur>0){useT+=dt;if(useT>=useDur)finishUse();}
-  autoT-=dt;if(autoT<=0){autoT=.05;const a=checkAim();aimLock=a&&a.lock?a.t:null;assistT=a&&!a.close?a.t:null;}
-  if((SAVE.auto||padOn)&&assistT&&assistT.alive&&!(zoomed&&curItem()&&WDEF[curItem().id]&&WDEF[curItem().id].scope)){const pa=SAVE.auto?1:.6;
+  autoT-=dt;if(autoT<=0){autoT=.05;const a=checkAim();aimLock=a&&a.lock?a.t:null;const na=a&&!a.close?a.t:null,tn=performance.now();
+    // Zielhilfe pendelt nicht mehr zwischen zwei Gegnern: ein Ziel wird mindestens 0,5 s gehalten
+    if(!(na&&assistT&&na!==assistT&&assistT.alive&&tn-assistSince<500)){if(na!==assistT)assistSince=tn;assistT=na;}}
+  if((SAVE.auto||padOn)&&assistT&&assistT.alive&&!(pcMode&&!padOn&&performance.now()-lastMouseT<250)&&!(zoomed&&curItem()&&WDEF[curItem().id]&&WDEF[curItem().id].scope)){const pa=SAVE.auto?1:.6;
     _tp.set(assistT.pos.x,assistT.pos.y+1.15,assistT.pos.z).sub(camera.position);const dyaw=Math.atan2(-_tp.x,-_tp.z),dp=Math.atan2(_tp.y,Math.hypot(_tp.x,_tp.z)),k=Math.min(1,dt*(aimLock?3:5));
     yaw+=angDiff(yaw,dyaw)*k*.55*pa;pitch+=(dp-pitch)*k*.45*pa;}
   const itA=curItem(),auto=SAVE.auto&&aimLock&&itA&&itA.cat==='w'&&(!WDEF[itA.id].scope||zoomed)&&(itA.mag>0||ammoRes[WDEF[itA.id].ammo]>0);
@@ -2865,10 +2867,17 @@ function padUse(){initAudio();if(!padOn){padOn=true;document.body.classList.add(
 function padOff(){if(!padOn)return;padOn=false;document.body.classList.remove('pad');input.padFire=false;if(padMoved){input.jx=0;input.jy=0;padMoved=false;}if(padAds){padAds=false;setZoom(false);}}
 function rumble(s,w,ms){if(!padOn)return;try{const p=getPad();if(p&&p.vibrationActuator&&p.vibrationActuator.playEffect)p.vibrationActuator.playEffect('dual-rumble',{duration:ms,strongMagnitude:s,weakMagnitude:w});}catch(e){}}
 function cycleSlot(d){let i=sel;for(let k=0;k<6;k++){i=(i+d+6)%6;if(i===0||inv[i-1])break;}if(i!==sel)selectSlot(i);}
-function pollPad(dt){const p=getPad();if(!p)return;const now=[];for(let i=0;i<17;i++){const b=p.buttons[i];now[i]=!!b&&(b.pressed||b.value>.5);}
-  const down=i=>now[i]&&!padPrev[i],up=i=>!now[i]&&padPrev[i],ax=p.axes;
+// Ruhestellung merken: manche Geräte melden Trigger in Ruhe als -1 oder Tasten als dauernd gedrückt.
+// Das galt bisher als Eingabe: die Kamera drehte von selbst und kämpfte gegen die Maus. Jetzt zählt nur die Abweichung von der Ruhe.
+let padRest=null;
+function pollPad(dt){const p=getPad();if(!p)return;
+  if(!padRest||padRest.id!==p.id||padRest.n!==p.axes.length)padRest={id:p.id,n:p.axes.length,a:Array.from(p.axes,v=>Math.abs(v)>.9?v:0),z:Array.from(p.axes,()=>0),b:p.buttons.map(b=>!!b&&(b.pressed||b.value>.5))};
+  for(let i=0;i<padRest.n;i++){if(padRest.a[i]&&Math.abs(p.axes[i])<.1){padRest.z[i]+=dt;if(padRest.z[i]>.5)padRest.a[i]=0;}else padRest.z[i]=0;} // erst nach 0,5 s Ruhe um 0 neu eichen
+  const now=[];for(let i=0;i<17;i++){const b=p.buttons[i],pr=!!b&&(b.pressed||b.value>.5);if(!pr&&padRest.b[i])padRest.b[i]=false;now[i]=pr&&!padRest.b[i];}
+  const down=i=>now[i]&&!padPrev[i],up=i=>!now[i]&&padPrev[i],ax=Array.from(p.axes,(v,i)=>v-(padRest.a[i]||0));
   let mx=ax[0]||0,my=ax[1]||0;const ml=Math.hypot(mx,my);if(ml<.18){mx=0;my=0;}else{const k=Math.min(1,(ml-.18)/.82)/ml;mx*=k;my*=k;}
-  const rx=ax[2]||0,ry=ax[3]||0;if(now.some(Boolean)||ml>.3||Math.hypot(rx,ry)>.3)padUse();
+  // Kamera nur mit Standard-Controllern (Xbox, PlayStation, Switch). Unbekannte Geräte drehen nie die Sicht
+  const std=p.mapping==='standard',rx=std?ax[2]||0:0,ry=std?ax[3]||0:0;if(now.some(Boolean)||ml>.3||Math.hypot(rx,ry)>.3)padUse();
   if(!padOn){padPrev=now;return;}
   padLT=p.buttons[6]?p.buttons[6].value:0;padRT=p.buttons[7]?p.buttons[7].value:0;padHeld=now;
   const done=()=>{padPrev=now;};
@@ -2902,7 +2911,7 @@ window.addEventListener('pointerdown',e=>{
   if(e.target.closest&&e.target.closest('.btn,.slot,.screen,#mini,#bigmap'))return;
   if(e.pointerType==='mouse'){
     if(document.pointerLockElement===canvas)return;
-    if(e.target===canvas){try{const r=canvas.requestPointerLock();if(r&&r.catch)r.catch(()=>{});}catch(_){}ptrs.set(e.pointerId,{role:'look',x:e.clientX,y:e.clientY});}
+    if(e.target===canvas){try{const r=canvas.requestPointerLock();if(r&&r.catch)r.catch(()=>{});}catch(_){}ptrs.set(e.pointerId,{role:'look',x:e.clientX,y:e.clientY,mouse:true});}
     return;}
   if(e.clientX<window.innerWidth*.42&&joyId===null){joyId=e.pointerId;joy.x=e.clientX;joy.y=e.clientY;ptrs.set(e.pointerId,{role:'joy'});
     const jb=$('joyBase');jb.style.left=joy.x+'px';jb.style.top=joy.y+'px';jb.style.display='block';$('joyKnob').style.transform='';$('joyHint').style.display='none';}
@@ -2910,11 +2919,16 @@ window.addEventListener('pointerdown',e=>{
 });
 window.addEventListener('pointermove',e=>{const p=ptrs.get(e.pointerId);if(!p)return;
   if(p.role==='joy'){let dx=e.clientX-joy.x,dy=e.clientY-joy.y;const d=Math.hypot(dx,dy),RR=60;if(d>RR){dx*=RR/d;dy*=RR/d;}input.jx=dx/RR;input.jy=dy/RR;$('joyKnob').style.transform=`translate(${dx}px,${dy}px)`;}
-  else if(p.role==='look'){look(e.clientX-p.x,e.clientY-p.y);p.x=e.clientX;p.y=e.clientY;}});
+  else if(p.role==='look'){if(p.mouse&&document.pointerLockElement===canvas)return; // bei gesperrtem Zeiger dreht nur mousemove, sonst doppelt
+    look(e.clientX-p.x,e.clientY-p.y);p.x=e.clientX;p.y=e.clientY;}});
 function endPtr(e){if(e.pointerType==='mouse')input.mouseFire=false;const p=ptrs.get(e.pointerId);if(!p)return;ptrs.delete(e.pointerId);
   if(p.role==='joy'){joyId=null;input.jx=input.jy=0;$('joyBase').style.display='none';}if(p.el)p.el.classList.remove('on');if(p.onUp)p.onUp();}
 window.addEventListener('pointerup',endPtr);window.addEventListener('pointercancel',endPtr);
-window.addEventListener('mousemove',e=>{if(document.pointerLockElement===canvas&&state==='play'){const k=.45*(SAVE.sens||1);look(e.movementX*k,e.movementY*k);}});
+let lastMouseT=0;
+window.addEventListener('mousemove',e=>{if(document.pointerLockElement===canvas&&state==='play'){const mx=e.movementX,my=e.movementY;
+  if(Math.abs(mx)>400||Math.abs(my)>400)return; // Chrome meldet bei gesperrtem Zeiger manchmal riesige Ausreißer: verwerfen, sonst springt die Sicht
+  if(Math.abs(mx)+Math.abs(my)>1){lastMouseT=performance.now();if(padOn&&Math.abs(mx)+Math.abs(my)>6)padOff();} // Maus bewegt: Controller-Modus aus
+  const k=.45*(SAVE.sens||1);look(mx*k,my*k);}});
 function setPC(v){if(v===pcMode)return;pcMode=v;document.body.classList.toggle('pc',v);if(v&&!SAVE.pcSet){SAVE.pcSet=1;SAVE.auto=false;saveNow();renderProfile();}}
 function lockMouse(){if(!pcMode||lockOK===false)return;try{const r0=canvas.requestPointerLock();if(r0&&r0.catch)r0.catch(()=>{lockOK=false;});}catch(_){lockOK=false;}}
 document.addEventListener('pointerlockchange',()=>{if(document.pointerLockElement===canvas)lockOK=true;else{input.mouseFire=false;if(zoomed)setZoom(false);}});
@@ -3038,7 +3052,7 @@ function frame(now){
   hudT-=dt;if(hudT<=0&&state!=='menu'){hudT=.1;updateHUD();drawMap(mctx,MS,false);if(bigOpen)drawMap($('bigc').getContext('2d'),900,true);}
 }
 requestAnimationFrame(frame);
-window.__game={th:(x,z)=>terrainH(x,z),lowQ:()=>{lowerQuality();lowerQuality();},dbg:()=>{const a=checkAim();const near=aimRay();return {a:a?{lock:a.lock,name:a.t.name}:null,near,o:_o.toArray().map(v=>+v.toFixed(2)),d:_d.toArray().map(v=>+v.toFixed(3)),p:player.pos.toArray().map(v=>+v.toFixed(2)),auto:SAVE.auto,sel,it:curItem()};},get aim(){return aimLock;},icon,setPitch:v=>{pitch=v;},boom:(x,y,z)=>explode(new V3(x,y,z),player),get quality(){return quality;},drops:()=>chests.filter(c=>c.drop),spawnDrop,throwG:()=>{const o=new V3(player.pos.x,player.pos.y+1.8,player.pos.z);throwGrenade(player,o,new V3(0,6,-10));},info:()=>renderer.info.render,get state(){return state;},get player(){return player;},MP,WON,peerRoom,loadPeerJS,KC,hurtBy:(e,a,s)=>damage(e,a,s),hurt:a=>damage(player,a,null,'boom'),bots:()=>bots,cars:()=>cars,enterCar:c=>enterCar(player,c),exitCar:()=>exitCar(player),input,addPad,aliveCount,storm,builds:()=>builds,chests:()=>chests,items:()=>floorItems,inv:()=>inv,
+window.__game={th:(x,z)=>terrainH(x,z),lowQ:()=>{lowerQuality();lowerQuality();},dbg:()=>{const a=checkAim();const near=aimRay();return {a:a?{lock:a.lock,name:a.t.name}:null,near,o:_o.toArray().map(v=>+v.toFixed(2)),d:_d.toArray().map(v=>+v.toFixed(3)),p:player.pos.toArray().map(v=>+v.toFixed(2)),auto:SAVE.auto,sel,it:curItem()};},get aim(){return aimLock;},icon,setPitch:v=>{pitch=v;},boom:(x,y,z)=>explode(new V3(x,y,z),player),get quality(){return quality;},drops:()=>chests.filter(c=>c.drop),spawnDrop,throwG:()=>{const o=new V3(player.pos.x,player.pos.y+1.8,player.pos.z);throwGrenade(player,o,new V3(0,6,-10));},info:()=>renderer.info.render,get state(){return state;},get player(){return player;},MP,WON,pollPad,get padOn(){return padOn;},peerRoom,loadPeerJS,KC,hurtBy:(e,a,s)=>damage(e,a,s),hurt:a=>damage(player,a,null,'boom'),bots:()=>bots,cars:()=>cars,enterCar:c=>enterCar(player,c),exitCar:()=>exitCar(player),input,addPad,aliveCount,storm,builds:()=>builds,chests:()=>chests,items:()=>floorItems,inv:()=>inv,
   build:t=>playerBuild(t),crouch:v=>{crouchTog=!!v;},takeSeat:(c,k)=>takeSeat(player,c,k),leaveSeat:()=>leaveSeat(player),dmgS:(s,d)=>damageStruct(s,d),applyHitE:(e,d)=>applyHit({object:{userData:{kind:'ent',ent:e}},point:new V3(e.pos.x,e.pos.y+1,e.pos.z),distance:5},d,player,1),
   audioReset,get audFix(){return audFix;},audio:()=>({ctx:!!actx,st:actx&&actx.state,loops:!!LOOPS,voc:VOC.length,pan:CAN_PAN,rev:!!REV,mus:MUS.on,step:MUS.step}),gfx:l=>applyGfx(l),get GFX(){return GFX;},openSet,sfx:(t,v,p)=>sfx(t,v,p),SND:()=>Object.keys(SND),GUN:()=>Object.keys(GUNSND),tgt:()=>{if(!tgtS)return null;const q=tgtAim?tgtPt.clone():tgtS.obj.position.clone();if(!tgtAim)q.y+=2.6;const w=q.clone();q.project(camera);return {type:tgtS.type,hp:tgtS.hp,max:tgtS.max,car:!!tgtS.car,T:tgtT,aim:tgtAim,w:w.toArray().map(v=>+v.toFixed(2)),ndc:q.toArray().map(v=>+v.toFixed(2)),cam:camera.position.toArray().map(v=>+v.toFixed(2))};},DIFF:()=>DIFF,PHASES,attackers,seatTick,canRide,freeSeat,get crackT(){return crackT;},
   setYaw:v=>{yaw=v;},jump:()=>playerJump(),interact,select:selectSlot,get act(){return actTarget;},ammo:()=>ammoRes,
