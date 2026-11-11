@@ -2537,7 +2537,7 @@ function peerRoom(code){return new Promise((res,rej)=>{
    ohne den Raum zu verlassen. Ist der Server nicht erreichbar, nimmt mpJoin die Direktverbindung (peerRoom). */
 const MP_SERVER=(()=>{const q=new URLSearchParams(location.search).get('mp');if(q)return q.replace(/\/$/,'');
   if(/\.workers\.dev$/.test(location.hostname)||location.port==='8787')return location.origin.replace(/^http/,'ws');
-  return 'wss://sturmfall.SUBDOMAIN.workers.dev';})();
+  return 'wss://sturmfall.sturmfall.workers.dev';})();
 function wsRoom(code){return new Promise((res,rej)=>{
   const me='p'+Math.random().toString(36).slice(2,10)+Date.now().toString(36);
   let ws=null,host=null,done=false,left=false,tries=0,lastMsg=performance.now();
