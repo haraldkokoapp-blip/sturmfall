@@ -2746,7 +2746,7 @@ function renderProfile(){$('lvl').textContent='Stufe '+SAVE.lvl;$('xpf').style.w
     d.addEventListener('click',()=>{if(!lock){SAVE.skin=i;saveNow();renderProfile();}});sk.appendChild(d);});
   document.querySelectorAll('.diff button[data-d]').forEach(b=>b.classList.toggle('sel',+b.dataset.d===SAVE.diff));document.querySelectorAll('.diff button[data-m]').forEach(b=>b.classList.toggle('sel',+b.dataset.m===(SAVE.mode||1)));
   $('autoBtn').textContent='Auto-Feuer & Zielhilfe: '+(SAVE.auto?'AN':'AUS');$('autoBtn').classList.toggle('sel',!!SAVE.auto);$('bAuto').classList.toggle('act',!!SAVE.auto);$('bAuto').textContent='Auto-Feuer '+(SAVE.auto?'AN':'AUS');}
-$('sens').value=$('sens2').value=SAVE.sens||1;setPC(PC0);if(SAVE.gfx!=null)applyGfx(SAVE.gfx);
+$('sens').value=$('sens2').value=SAVE.sens||1;setPC(PC0);
 renderProfile();
 let ftEma=16,qT=0,quality=2;
 // Grafik: nur Optik (Auflösung, Schatten, Gras/Blumen, Wolken, Pollen, Detailstufe, ferne Bäume) – Spielfiguren, Hitboxen, Büsche, Häuser bleiben gleich
@@ -2761,6 +2761,7 @@ function applyGfx(l){l=clamp(l|0,0,2);const P=GFXP[l];GFX=P;quality=l;
     scene.traverse(o=>{const m=o.material;if(m)(Array.isArray(m)?m:[m]).forEach(x=>{x.needsUpdate=true;});});}
   clouds.forEach((c,i)=>{c.visible=i<P.cloud;});cullT=0;}
 function lowerQuality(){if(quality>0)applyGfx(quality-1);}
+if(SAVE.gfx!=null)applyGfx(SAVE.gfx); // erst hier: vorher sind GFXP und quality noch nicht angelegt (Absturz beim Laden mit gespeicherter Grafikstufe)
 function renderSet(){document.querySelectorAll('#setP button[data-g]').forEach(b=>b.classList.toggle('sel',+b.dataset.g===(SAVE.gfx==null?2:SAVE.gfx)));$('gHint').textContent=GFXP[SAVE.gfx==null?2:SAVE.gfx].t;
   $('volM').value=SAVE.volM==null?.6:SAVE.volM;$('volS').value=SAVE.volS==null?1:SAVE.volS;}
 function openSet(){renderSet();$('setP').classList.remove('hidden');try{if(document.pointerLockElement)document.exitPointerLock();}catch(e){}}
