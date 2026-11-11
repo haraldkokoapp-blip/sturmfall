@@ -578,7 +578,7 @@ function withMag(w){w.mag=WDEF[w.id].mag;return w;}
 
 /* ================= Audio ================= */
 // Eigene Klangsynthese (keine fremden Samples): Effekte → Bus-Kompressor → Lautheit → Limiter; Musik separat
-let actx=null,noiseBuf=null,brownBuf=null,MASTER=null,MUSG=null,REV=null,MDLY=null,ANA=null,CAN_PAN=false,LOOPS=null,birdT=7,reloadTot=1,reloadSt=0,audT=0,audFix=0,audSil=0;const VOC=[],ANAB=new Float32Array(256);
+let actx=null,noiseBuf=null,brownBuf=null,MASTER=null,MUSG=null,REV=null,MDLY=null,ANA=null,CAN_PAN=false,LOOPS=null,birdT=7,reloadTot=1,reloadSt=0,audT=0,audFix=0,audSil=0,audLoud=0;const VOC=[],ANAB=new Float32Array(256);
 function mkNoise(sec,brown){const sr=actx.sampleRate,n=Math.floor(sr*sec),b=actx.createBuffer(1,n,sr),d=b.getChannelData(0);let l=0;for(let i=0;i<n;i++){const w=Math.random()*2-1;if(brown){l=(l+.02*w)/1.02;d[i]=l*3.5;}else d[i]=w;}return b;}
 function mkIR(sec){const sr=actx.sampleRate,n=Math.floor(sr*sec),b=actx.createBuffer(2,n,sr);
   for(let c=0;c<2;c++){const d=b.getChannelData(c);for(let i=0;i<n;i++){const t=i/sr;d[i]=(Math.random()*2-1)*Math.pow(1-t/sec,2.8)*Math.min(1,t/.008);}
@@ -597,18 +597,22 @@ function initAudio(){try{if(!actx){actx=new(window.AudioContext||window.webkitAu
     CAN_PAN=typeof actx.createStereoPanner==='function';try{initLoops();}catch(_){LOOPS=null;}applyVol();}
   if(actx.state==='suspended')actx.resume();}catch(e){actx=null;}}
 // Stimmen-Budget: eigene Sounds immer, nahe Sounds bis 56, ferne nur bis 30 gleichzeitig (schützt vor Überlastung)
-function voiceOk(du,prio,far){const t=actx.currentTime;let j=0;for(let i=0;i<VOC.length;i++)if(VOC[i]>t)VOC[j++]=VOC[i];VOC.length=j;if(!prio&&(j>=40||(far&&j>=22)))return false;if(j>=70)return false;VOC.push(t+du);return true;}
-function farOf(pos,range){if(!pos)return false;const L=lisPos();return Math.hypot(pos.x-L.x,pos.z-L.z)>range*.3;}
-function audioReset(){const old=actx;actx=null;MASTER=null;MUSG=null;REV=null;MDLY=null;ANA=null;LOOPS=null;VOC.length=0;MUS.on=null;MUS.g=null;engine=null;try{if(old&&old.close)old.close();}catch(e){}
+// Zählt nur Sounds, die wirklich spielen (abus prüft vorher Reichweite). iPad: kleineres Budget, sonst knackt es bei vielen Stimmen
+const LOWAUD=/iP(ad|hone|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+function voiceOk(du,prio,far){const t=actx.currentTime;let j=0;for(let i=0;i<VOC.length;i++)if(VOC[i]>t)VOC[j++]=VOC[i];VOC.length=j;
+  if(!prio&&(j>=(LOWAUD?30:40)||(far&&j>=(LOWAUD?14:22))))return false;if(j>=70)return false;VOC.push(t+du);return true;}
+function audioReset(){const old=actx;actx=null;MASTER=null;MUSG=null;REV=null;MDLY=null;ANA=null;LOOPS=null;VOC.length=0;audLoud=0;MUS.on=null;MUS.g=null;engine=null;try{if(old&&old.close)old.close();}catch(e){}
   initAudio();if(actx&&player&&player.car)engineStart();}
 function lisPos(){return player&&player.alive&&state!=='menu'?player.pos:camera.position;}
 // Ausgabe-Bus: Lautstärke, Position (null = direkt), Reichweite, Hall, Schallverzögerung, Abfall-Kurve
-function abus(vol,pos,range,rev,dl,ex){
-  let g=vol,pan=0,lp=0,wet=rev||0,dly=0,k=1;
+function abus(vol,pos,range,rev,dl,ex,du,prio){
+  let g=vol,pan=0,lp=0,wet=rev||0,dly=0,k=1,far=false;
   if(pos){const L=lisPos(),dx=pos.x-L.x,dy=(pos.y==null?L.y:pos.y)-L.y,dz=pos.z-L.z,d=Math.sqrt(dx*dx+dy*dy*.5+dz*dz),r=range||90;if(d>=r)return null;
-    k=1-d/r;g*=Math.pow(k,ex||1.6);if(g<.003)return null;let behind=false;
+    k=1-d/r;g*=Math.pow(k,ex||1.6);if(g<.003)return null;far=d>r*.3;let behind=false;
     const h=Math.hypot(dx,dz);if(h>.6){const fx=-Math.sin(yaw),fz=-Math.cos(yaw);pan=clamp((dx*Math.cos(yaw)-dz*Math.sin(yaw))/h,-1,1)*Math.min(1,h/4)*.85;behind=(dx*fx+dz*fz)/h<-.35;}
     const cut=1400+18600*Math.pow(k,1.7)*(behind?.6:1);lp=cut<17000?cut:0;wet+=.35*(1-k);if(dl)dly=Math.min(.35,d/343);}
+  if(!voiceOk(du||.3,prio,far))return null;
+  if(!pos&&g>=.03)audLoud=actx.currentTime+.004+Math.min(du||.3,.25); // eigener hörbarer Sound: jetzt muss Ton rauskommen (für den Wächter)
   const inp=actx.createGain();inp.gain.value=g;let n=inp;
   if(lp){const f=actx.createBiquadFilter();f.type='lowpass';f.frequency.value=lp;f.Q.value=.4;n.connect(f);n=f;}
   if(CAN_PAN&&Math.abs(pan)>.03){const p=actx.createStereoPanner();p.pan.value=pan;n.connect(p);n=p;}
@@ -653,7 +657,7 @@ function surfOf(e){if(e.inWater)return'water';const x=e.pos.x,z=e.pos.z,th=terra
 // Gegner-Schritte deutlich hörbar (Richtung + Entfernung), eigene leiser; Geduckte sind lautlos
 function footstep(e,spd){if(!actx||!MASTER||state!=='play'||!player)return;const own=e===player;if(e.crouch&&!own)return;if(own&&player.car)return;
   if(!own&&Math.abs(e.pos.x-player.pos.x)+Math.abs(e.pos.z-player.pos.z)>62)return;
-  const run=clamp(spd/6,.5,1.25),v=own?(e.crouch?.08:.18)*run:.5*run;if(!voiceOk(.12,own,!own&&Math.hypot(e.pos.x-player.pos.x,e.pos.z-player.pos.z)>22))return;const o=abus(v,own?null:e.pos,46,.05,false,1.05);if(o)stepSnd(o,surfOf(e),own?.7:1);}
+  const run=clamp(spd/6,.5,1.25),v=own?(e.crouch?.08:.18)*run:.5*run;const o=abus(v,own?null:e.pos,46,.05,false,1.05,.12,own);if(o)stepSnd(o,surfOf(e),own?.7:1);}
 const SND={
   step:{d:.12,f:o=>stepSnd(o,'grass')},
   land:{d:.3,f:(o,t)=>{tn(o,t,'sine',110,45,.18,.6);nz(o,t,.16,.35,'lowpass',900,200,.8);nz(o,t,.05,.15,'bandpass',2000,1500,1.2);}},
@@ -697,8 +701,8 @@ const SND={
 SND.reload=SND.magout;
 function sfx(type,vol,pos){if(!actx||!MASTER)return;vol=vol==null?1:vol;try{
   const G=GUNSND[type];
-  if(G){const own=!pos;if(!voiceOk(own?.7:.5,own,farOf(pos,G.r)))return;const o=abus(vol*.55,pos||null,G.r,own?.1:.08,!own,1.25);if(o)gunshot(G,o,own);return;}
-  const S=SND[type];if(!S)return;if(!voiceOk(S.d||.3,S.p||!pos,farOf(pos,S.r||60)))return;const o=abus(vol,pos||null,S.r||60,S.rv||.06,S.dl&&pos,S.ex);if(o)S.f(o,o.t);}catch(e){}}
+  if(G){const own=!pos;const o=abus(vol*.55,pos||null,G.r,own?.1:.08,!own,1.25,own?.7:.5,own);if(o)gunshot(G,o,own);return;}
+  const S=SND[type];if(!S)return;const o=abus(vol,pos||null,S.r||60,S.rv||.06,S.dl&&pos,S.ex,S.d||.3,S.p||!pos);if(o)S.f(o,o.t);}catch(e){}}
 // Dauerschleifen: Wind, Sturm, Truhen-Schimmer, Bus
 function loopSrc(buf,ft,f,q){const s=actx.createBufferSource();s.buffer=buf;s.loop=true;const fl=actx.createBiquadFilter();fl.type=ft;fl.frequency.value=f;fl.Q.value=q||.7;const g=actx.createGain();g.gain.value=0;s.connect(fl);fl.connect(g);g.connect(MASTER);s.start();return{s,f:fl,g};}
 function initLoops(){LOOPS={};
@@ -747,8 +751,9 @@ function musTick(){const want=musWant(),t=actx.currentTime;
   if(!MUS.g)return;const T=MUS.trk,sd=60/T.bpm/4;if(MUS.next<t-.25)MUS.next=t+.05;
   let n=0;while(MUS.next<t+.4&&n++<24){musStep(T,MUS.step,MUS.next);MUS.next+=sd;MUS.step++;}}
 function audioTick(dt){if(!actx)return;audT-=dt;if(audT<=0){audT=.5;try{if(actx.state!=='running'&&actx.state!=='closed')actx.resume();
-    if(ANA&&ANA.getFloatTimeDomainData){ANA.getFloatTimeDomainData(ANAB);let pk=0;for(let i=0;i<ANAB.length;i+=2){const v=ANAB[i];if(!isFinite(v)){audFix++;audioReset();return;}if(v>pk)pk=v;else if(-v>pk)pk=-v;}
-      if(VOC.length>=3&&pk<1e-7){if(++audSil>=4){audSil=0;audFix++;audioReset();return;}}else audSil=0;}}catch(e){}}
+    if(ANA&&ANA.getFloatTimeDomainData&&actx.state==='running'){ANA.getFloatTimeDomainData(ANAB);let pk=0;for(let i=0;i<ANAB.length;i+=2){const v=ANAB[i];if(!isFinite(v)){audFix++;audioReset();return;}if(v>pk)pk=v;else if(-v>pk)pk=-v;}
+      // Neu aufbauen nur, wenn gerade ein eigener hörbarer Sound läuft und trotzdem 3x hintereinander Stille rauskommt (normale Stille im Spiel ist kein Defekt)
+      if(actx.currentTime<audLoud){if(pk<1e-6){if(++audSil>=3){audSil=0;audFix++;audioReset();return;}}else audSil=0;}}}catch(e){}}
   if(!LOOPS)return;try{audioTick2(dt);}catch(e){}}
 function audioTick2(dt){const t=actx.currentTime,L=LOOPS,P=player,play=state==='play'&&!!P;
   const set=(g,v,tc)=>g.gain.setTargetAtTime(v,t,tc||.15);
