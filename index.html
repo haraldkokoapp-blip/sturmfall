@@ -2826,12 +2826,31 @@ function updateBot(b,dt){
 }
 
 /* ================= Sturm & Bus ================= */
-function planNext(){const ph=PHASES[storm.phase],off=Math.max(0,storm.r-ph.r)*.75,a=srand(0,6.283),d=Math.sqrt(SRNG())*off,lim=Math.max(0,MAPB-40-ph.r);
-  storm.tx=clamp(storm.cx+Math.cos(a)*d,-lim,lim);storm.tz=clamp(storm.cz+Math.sin(a)*d,-lim,lim);
-  if(Math.hypot(storm.tx-LAKE.x,storm.tz-LAKE.z)<40&&ph.r<40){storm.tx+=50;}
-  if(Math.hypot(storm.tx-VOLC.x,storm.tz-VOLC.z)<50&&ph.r<70){storm.tx-=70;} // letzte Zone nie im Krater
-  storm.tr=ph.r;}
-function initStorm(){Object.assign(storm,{phase:0,mode:'wait',cx:0,cz:0,r:620,tick:0});planNext();storm.t=PHASES[0].w;}
+// Sturmweg: Jede Runde endet an einem zufälligen Punkt auf festem, ebenem Land. Der erste Kreis liegt bis 150 m neben der Mitte,
+// jeder weitere zufällig im vorigen, aber so, dass das Ziel erreichbar bleibt. Im Mehrspieler aus MP.seed, damit alle denselben Sturm haben.
+function stormEndOk(x,z){
+  if(Math.pow(Math.pow(Math.abs(x),4)+Math.pow(Math.abs(z),4),.25)>315)return false; // nicht an der Küste
+  if(Math.hypot(x-VOLC.x,z-VOLC.z)<75)return false;
+  for(const T of TERR)if(Math.hypot(x-T.x,z-T.z)<T.r*1.5)return false; // nicht oben auf Stufenbergen
+  for(const m of MESAS)if(Math.hypot(x-m.x,z-m.z)<m.r+12)return false;
+  const h=terrainH(x,z);if(h<WL+1||h>30)return false;
+  for(let k=0;k<8;k++){const a=k*.785,hh=terrainH(x+Math.cos(a)*18,z+Math.sin(a)*18);if(hh<WL+.6||Math.abs(hh-h)>6)return false;}
+  return true;}
+function planStorm(){
+  const R=MP.inMatch?mulberry32((MP.seed*31+7919)|0):Math.random,K=.9,KQ=.75,n=PHASES.length;
+  let ex=0,ez=14;
+  for(let i=0;i<400;i++){const x=(R()*2-1)*330,z=(R()*2-1)*330;if(stormEndOk(x,z)){ex=x;ez=z;break;}}
+  const reach=KQ*K*PHASES[0].r;let cx=null,cz=0;
+  for(let i=0;i<200&&cx===null;i++){const a=R()*6.283,d=Math.sqrt(R())*150,x=Math.cos(a)*d,z=Math.sin(a)*d;if(Math.hypot(ex-x,ez-z)<=reach){cx=x;cz=z;}}
+  if(cx===null){const L=Math.hypot(ex,ez)||1,m=Math.max(0,L-reach);cx=ex/L*m;cz=ez/L*m;}
+  const path=[{x:cx,z:cz}];
+  for(let i=1;i<n;i++){const step=K*(PHASES[i-1].r-PHASES[i].r),rem=KQ*K*PHASES[i].r;let nx=null,nz=0;
+    for(let t=0;t<40&&nx===null;t++){const a=R()*6.283,d=Math.sqrt(R())*step,x=cx+Math.cos(a)*d,z=cz+Math.sin(a)*d;if(Math.hypot(ex-x,ez-z)<=rem){nx=x;nz=z;}}
+    if(nx===null){const dx=ex-cx,dz=ez-cz,L=Math.hypot(dx,dz)||1,m=Math.min(step,L);nx=cx+dx/L*m;nz=cz+dz/L*m;}
+    cx=nx;cz=nz;path.push({x:cx,z:cz});}
+  storm.path=path;storm.end={x:ex,z:ez};}
+function planNext(){const p=storm.path[storm.phase];storm.tx=p.x;storm.tz=p.z;storm.tr=PHASES[storm.phase].r;}
+function initStorm(){Object.assign(storm,{phase:0,mode:'wait',cx:0,cz:0,r:620,tick:0});planStorm();planNext();storm.t=PHASES[0].w;}
 function updateStorm(dt){
   if(storm.mode==='done')return;storm.t-=dt;const ph=PHASES[storm.phase];
   if(storm.mode==='wait'){if(storm.t<=0){storm.mode='shrink';storm.t=ph.s;storm.fx=storm.cx;storm.fz=storm.cz;storm.fr=storm.r;banner('STURM ZIEHT ZU!');sfx('storm',.9);if(storm.phase<6&&state==='play')spawnDrop();}}
@@ -3855,7 +3874,7 @@ function frame(now){
   hudT-=dt;if(hudT<=0&&state!=='menu'){hudT=.1;updateHUD();drawMap(mctx,MS,false);if(bigOpen)drawMap($('bigc').getContext('2d'),900,true);}
 }
 requestAnimationFrame(frame);
-window.__game={RIG,rigTick,WPK,FURN,LM,MUSH,MET,MINOR,get ramps(){return ramps;},get furnIM(){return furnIM;},get trees(){return trees;},pickaxeHit:()=>pickaxeHit(),get slide(){return{slideT,slideV};},cam:(p,t)=>{DBGCAM=p?{p:new V3(p[0],p[1],p[2]),t:new V3(t[0],t[1],t[2])}:null;},get entities(){return entities;},get camera(){return camera;},th:(x,z)=>terrainH(x,z),lowQ:()=>{lowerQuality();lowerQuality();},dbg:()=>{const a=checkAim();const near=aimRay();return {a:a?{lock:a.lock,name:a.t.name}:null,near,o:_o.toArray().map(v=>+v.toFixed(2)),d:_d.toArray().map(v=>+v.toFixed(3)),p:player.pos.toArray().map(v=>+v.toFixed(2)),auto:SAVE.auto,sel,it:curItem()};},get aim(){return aimLock;},icon,setPitch:v=>{pitch=v;},boom:(x,y,z)=>explode(new V3(x,y,z),player),get quality(){return quality;},drops:()=>chests.filter(c=>c.drop),spawnDrop,throwG:()=>{const o=new V3(player.pos.x,player.pos.y+1.8,player.pos.z);throwGrenade(player,o,new V3(0,6,-10));},info:()=>renderer.info.render,get state(){return state;},get player(){return player;},MP,WON,TAGS,MYTAGS,PINGS,pollPad,get padOn(){return padOn;},peerRoom,loadPeerJS,KC,hurtBy:(e,a,s)=>damage(e,a,s),hurt:a=>damage(player,a,null,'boom'),bots:()=>bots,cars:()=>cars,enterCar:c=>enterCar(player,c),exitCar:()=>exitCar(player),input,addPad,aliveCount,storm,builds:()=>builds,chests:()=>chests,items:()=>floorItems,inv:()=>inv,
+window.__game={RIG,rigTick,WPK,FURN,LM,MUSH,MET,MINOR,get ramps(){return ramps;},get furnIM(){return furnIM;},get trees(){return trees;},pickaxeHit:()=>pickaxeHit(),get slide(){return{slideT,slideV};},cam:(p,t)=>{DBGCAM=p?{p:new V3(p[0],p[1],p[2]),t:new V3(t[0],t[1],t[2])}:null;},get entities(){return entities;},get camera(){return camera;},th:(x,z)=>terrainH(x,z),lowQ:()=>{lowerQuality();lowerQuality();},dbg:()=>{const a=checkAim();const near=aimRay();return {a:a?{lock:a.lock,name:a.t.name}:null,near,o:_o.toArray().map(v=>+v.toFixed(2)),d:_d.toArray().map(v=>+v.toFixed(3)),p:player.pos.toArray().map(v=>+v.toFixed(2)),auto:SAVE.auto,sel,it:curItem()};},get aim(){return aimLock;},icon,setPitch:v=>{pitch=v;},boom:(x,y,z)=>explode(new V3(x,y,z),player),get quality(){return quality;},drops:()=>chests.filter(c=>c.drop),spawnDrop,throwG:()=>{const o=new V3(player.pos.x,player.pos.y+1.8,player.pos.z);throwGrenade(player,o,new V3(0,6,-10));},info:()=>renderer.info.render,get state(){return state;},get player(){return player;},MP,WON,TAGS,MYTAGS,PINGS,pollPad,get padOn(){return padOn;},peerRoom,loadPeerJS,KC,hurtBy:(e,a,s)=>damage(e,a,s),hurt:a=>damage(player,a,null,'boom'),bots:()=>bots,cars:()=>cars,enterCar:c=>enterCar(player,c),exitCar:()=>exitCar(player),input,addPad,aliveCount,storm,planStorm,stormEndOk,builds:()=>builds,chests:()=>chests,items:()=>floorItems,inv:()=>inv,
   build:t=>playerBuild(t),crouch:v=>{crouchTog=!!v;},takeSeat:(c,k)=>takeSeat(player,c,k),leaveSeat:()=>leaveSeat(player),dmgS:(s,d)=>damageStruct(s,d),applyHitE:(e,d)=>applyHit({object:{userData:{kind:'ent',ent:e}},point:new V3(e.pos.x,e.pos.y+1,e.pos.z),distance:5},d,player,1),
   audioReset,get audFix(){return audFix;},audio:()=>({ctx:!!actx,st:actx&&actx.state,loops:!!LOOPS,voc:VOC.length,pan:CAN_PAN,rev:!!REV,mus:MUS.on,step:MUS.step}),gfx:l=>applyGfx(l),get GFX(){return GFX;},openSet,sfx:(t,v,p)=>sfx(t,v,p),SND:()=>Object.keys(SND),GUN:()=>Object.keys(GUNSND),tgt:()=>{if(!tgtS)return null;const q=tgtAim?tgtPt.clone():tgtS.obj.position.clone();if(!tgtAim)q.y+=2.6;const w=q.clone();q.project(camera);return {type:tgtS.type,hp:tgtS.hp,max:tgtS.max,car:!!tgtS.car,T:tgtT,aim:tgtAim,w:w.toArray().map(v=>+v.toFixed(2)),ndc:q.toArray().map(v=>+v.toFixed(2)),cam:camera.position.toArray().map(v=>+v.toFixed(2))};},DIFF:()=>DIFF,PHASES,attackers,seatTick,canRide,freeSeat,get crackT(){return crackT;},
   setYaw:v=>{yaw=v;},jump:()=>playerJump(),interact,select:selectSlot,get act(){return actTarget;},ammo:()=>ammoRes,
