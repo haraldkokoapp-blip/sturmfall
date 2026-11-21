@@ -272,7 +272,7 @@ body.pc #rot{display:none!important}
 <div id="vig"></div><div id="flash"></div><div id="tint"></div>
 <div id="start" class="screen">
   <h1>STURMFALL</h1>
-  <p>Battle Royale · 99 Spieler · 15 Orte · Autos · Sprungpads · Truhen &amp; Abwürfe</p>
+  <p>Battle Royale · 99 Spieler · 20 Orte und 40 Nebenorte · Autos · Sprungpads · Truhen &amp; Abwürfe</p>
   <div id="prof"><span id="lvl">Stufe 1</span><div class="xpb"><div id="xpf"></div></div></div>
   <div class="row" id="skins"></div>
   <div class="row diff"><button data-d="0">Leicht</button><button data-d="1">Normal</button><button data-d="2">Profi</button></div>
@@ -335,7 +335,8 @@ const angDiff=(a,b)=>{let d=b-a;while(d>Math.PI)d-=Math.PI*2;while(d<-Math.PI)d+
 const removeFrom=(arr,x)=>{const i=arr.indexOf(x);if(i>=0)arr.splice(i,1);};
 const fmt=t=>{t=Math.max(0,Math.ceil(t));return Math.floor(t/60)+':'+String(t%60).padStart(2,'0');};
 const weighted=list=>{let s=0;for(const x of list)s+=x[1];let r=Math.random()*s;for(const x of list){r-=x[1];if(r<=0)return x[0];}return list[0][0];};
-const GRAV=22,R=.45,H=1.8,STEP=.55,NBOTS=98,MAPB=420,WL=-1.3;
+// WS: Weltmaßstab. Alle festen Koordinaten sind im Maß der alten Karte angegeben und werden damit gestreckt (Gebäude bleiben gleich groß).
+const WS=1.5,GRAV=22,R=.45,H=1.8,STEP=.55,NBOTS=98,MAPB=Math.round(420*WS),WL=-1.3;
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
 let RNG=mulberry32(1337);const rr=(a,b)=>a+RNG()*(b-a);const pickR=a=>a[(RNG()*a.length)|0];
 
@@ -394,53 +395,72 @@ const LAKE={x:-232,z:196};
    Schneeberg (Nordosten), Wüste mit Tafelbergen (Südosten), Sumpf am See (Südwesten), Feuerberg mit Lava (Osten) */
 const VOLC={x:305,z:85,lavaR:13,lavaY:0};
 const MESAS=[{x:205,z:258,r:20,h:17},{x:262,z:300,r:15,h:22},{x:140,z:228,r:13,h:13},{x:300,z:280,r:15,h:15},{x:235,z:332,r:12,h:19}];
-function bio(x,z){const w=fbm(x*.009+31,z*.009-17)*38,g=(cx,cz,a,b,o)=>1-sstep(a,b,Math.hypot(x-cx,z-cz)+w*o); // verrauschte Grenzen statt Kreise
-  return{s:g(255,-245,105,185,1),d:g(215,270,110,170,-.8),w:g(-215,215,80,140,.7),v:g(VOLC.x,VOLC.z,70,125,.4)};}
+function bio0(x,z){const w=fbm(x*.009+31,z*.009-17)*38,g=(cx,cz,a,b,o)=>1-sstep(a,b,Math.hypot(x-cx,z-cz)+w*o); // verrauschte Grenzen statt Kreise
+  return{s:g(255,-245,105,185,1),d:g(215,270,110,170,-.8),w:g(-215,215,80,140,.7),v:g(VOLC0.x,VOLC0.z,70,125,.4)};}
 const mix3=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];
 // Fluss (Lauf siehe buildRiver): Schlucht am Oberlauf, Mündung im Westen
 const RIVER=[[222,-150],[170,-138],[118,-128],[72,-112],[24,-120],[-26,-150],[-76,-172],[-118,-176],[-170,-168],[-218,-150],[-268,-130],[-318,-118],[-372,-110],[-445,-104]];
 function riverDist(x,z){let m=1e9;for(let i=0;i<RIVER.length-1;i++){const a=RIVER[i],b=RIVER[i+1],dx=b[0]-a[0],dz=b[1]-a[1],t=clamp(((x-a[0])*dx+(z-a[1])*dz)/(dx*dx+dz*dz),0,1);const d=Math.hypot(x-a[0]-dx*t,z-a[1]-dz*t);if(d<m)m=d;}return m;}
 // Stufenberge: Plateaus mit steilen Kanten, gut für Kämpfe mit Höhenvorteil
 const TERR=[{x:-185,z:95,r:55,h:24},{x:70,z:150,r:45,h:19},{x:-20,z:-215,r:50,h:22}];
-function baseH(x,z){
+// Weltmaßstab anwenden: Gelände und Gebiete werden um WS gestreckt, Orte rücken auseinander, Ortsgrößen bleiben.
+// baseH0 und bio0 rechnen im alten Maß mit den *0-Kopien, baseH und bio sind die Welt-Versionen.
+const LAKE0={...LAKE},VOLC0={...VOLC},MESAS0=MESAS.map(m=>({...m})),TERR0=TERR.map(t=>({...t})),RIVER0=RIVER.map(p=>p.slice());
+for(const p of POIS){p.x*=WS;p.z*=WS;}
+LAKE.x*=WS;LAKE.z*=WS;VOLC.x*=WS;VOLC.z*=WS;VOLC.lavaR*=WS;
+for(const m of MESAS){m.x*=WS;m.z*=WS;m.r*=WS;}
+for(const t of TERR){t.x*=WS;t.z*=WS;t.r*=WS;}
+for(const p of RIVER){p[0]*=WS;p[1]*=WS;}
+function riverDist0(x,z){let m=1e9;for(let i=0;i<RIVER0.length-1;i++){const a=RIVER0[i],b=RIVER0[i+1],dx=b[0]-a[0],dz=b[1]-a[1],t=clamp(((x-a[0])*dx+(z-a[1])*dz)/(dx*dx+dz*dz),0,1);const d=Math.hypot(x-a[0]-dx*t,z-a[1]-dz*t);if(d<m)m=d;}return m;}
+function baseH(x,z){return baseH0(x/WS,z/WS);}
+function bio(x,z){return bio0(x/WS,z/WS);}
+function baseH0(x,z){
   let h=fbm(x*.0058+3.1,z*.0058+7.7)*11+5.5+fbm(x*.024,z*.024)*1.8;
   const dm=Math.hypot(x-250,z+250);h+=56*Math.exp(-dm*dm/(2*78*78));
   const d2=Math.hypot(x-325,z+165);h+=30*Math.exp(-d2*d2/(2*46*46)); // Schneeberg: zweiter Gipfel
   const d3=Math.hypot(x-170,z+305);h+=22*Math.exp(-d3*d3/(2*40*40)); // Schneeberg: dritter Gipfel
   const dc=Math.hypot(x+290,z+7);h+=11*Math.exp(-dc*dc/(2*54*54));
   const dw=Math.hypot(x-60,z+300);h+=10*Math.exp(-dw*dw/(2*85*85));
-  const B=bio(x,z);
+  const B=bio0(x,z);
   if(B.s>0)h+=B.s*(Math.pow(1-Math.abs(vnoise(x*.028+7,z*.028+3)),3)*11-3); // Schneeberg: scharfe Felsgrate
   if(B.d>0){h+=B.d*(1.3*Math.sin(x*.05+z*.021+fbm(x*.012,z*.012)*4)+1.3); // Dünen
-    for(const m of MESAS){const dd=Math.hypot(x-m.x,z-m.z);if(dd<m.r+4)h+=m.h*B.d*(1-sstep(m.r-3,m.r+2.5,dd));}} // Tafelberge mit steilen Wänden
+    for(const m of MESAS0){const dd=Math.hypot(x-m.x,z-m.z);if(dd<m.r+4)h+=m.h*B.d*(1-sstep(m.r-3,m.r+2.5,dd));}} // Tafelberge mit steilen Wänden
   if(B.w>0)h=lerp(h,WL+.3+fbm(x*.035+2,z*.035+5)*2.3,B.w*.9); // Sumpf: flach, mit Tümpeln
-  {const dv=Math.hypot(x-VOLC.x,z-VOLC.z);if(dv<125){const k=1-dv/125,ux=(x-VOLC.x)/(dv||1),uz=(z-VOLC.z)/(dv||1),gul=(vnoise(ux*4+11,uz*4+5)*6+vnoise(ux*9+2,uz*9+8)*3)*k*(1-k)*4*sstep(22,30,dv);
+  {const dv=Math.hypot(x-VOLC0.x,z-VOLC0.z);if(dv<125){const k=1-dv/125,ux=(x-VOLC0.x)/(dv||1),uz=(z-VOLC0.z)/(dv||1),gul=(vnoise(ux*4+11,uz*4+5)*6+vnoise(ux*9+2,uz*9+8)*3)*k*(1-k)*4*sstep(22,30,dv);
     h=Math.max(h,5+60*Math.pow(k,1.6)-22*(1-sstep(8,22,dv))+gul);}} // Feuerberg mit Krater, Rinnen und Graten
-  for(const T of TERR){const d=Math.hypot(x-T.x,z-T.z);if(d<T.r*2.4){const w=Math.exp(-d*d/(2*T.r*T.r));h+=T.h*w;const f=h/7,fl=Math.floor(f),ht=(fl+sstep(.74,.99,f-fl))*7;h=lerp(h,ht,Math.min(1,w*2));}}
-  {const rd=riverDist(x,z);if(rd<22)h=lerp(h,Math.min(h,WL-1.7),1-sstep(5.5,22,rd));} // Flussbett
-  const dl=Math.hypot(x-LAKE.x,z-LAKE.z);h=lerp(h,-2.9,1-sstep(32,72,dl));
+  for(const T of TERR0){const d=Math.hypot(x-T.x,z-T.z);if(d<T.r*2.4){const w=Math.exp(-d*d/(2*T.r*T.r));h+=T.h*w;const f=h/7,fl=Math.floor(f),ht=(fl+sstep(.74,.99,f-fl))*7;h=lerp(h,ht,Math.min(1,w*2));}}
+  {const rd=riverDist0(x,z);if(rd<22)h=lerp(h,Math.min(h,WL-1.7),1-sstep(5.5,22,rd));} // Flussbett
+  const dl=Math.hypot(x-LAKE0.x,z-LAKE0.z);h=lerp(h,-2.9,1-sstep(32,72,dl));
   const e=Math.pow(Math.pow(Math.abs(x),4)+Math.pow(Math.abs(z),4),.25);
   return lerp(-8,h,1-sstep(352,440,e));
 }
 for(const p of POIS){const b=baseH(p.x,p.z);p.h=p.type==='harbor'?.7:p.type==='quarry'?Math.max(2.5,b-6):p.type==='peak'?b:Math.max(1.2,b);}
 function finalH(x,z){let h=baseH(x,z);for(const p of POIS){if(p.noFlat)continue;const d=Math.hypot(x-p.x,z-p.z),t=1-sstep(p.r,p.r+18,d);if(t>0)h=lerp(h,p.h,t);}for(const p of MINOR){const d=Math.hypot(x-p.x,z-p.z),t=1-sstep(p.r,p.r+12,d);if(t>0)h=lerp(h,p.h,t);}return h;}
 const ROADS=[[[0,14],[-257,-230]],[[0,14],[-290,-7]],[[0,14],[-148,270]],[[-148,270],[-277,256]],[[0,14],[27,284]],[[0,14],[263,203]],[[0,14],[149,-81]],[[149,-81],[203,-189]],[[-81,-230],[-150,-142]],[[-150,-38],[-150,3]],[[98,45],[40,20]],[[149,-81],[338,-30]],[[149,-81],[60,-272]],[[27,284],[170,326]]];
+for(const s of ROADS)for(const q of s){q[0]*=WS;q[1]*=WS;}
 const STREETS=[];{const T=POIS[0];for(let k=-2;k<=3;k++){const o=k*22-11;STREETS.push([[T.x-60,T.z+o],[T.x+60,T.z+o]],[[T.x+o,T.z-60],[T.x+o,T.z+60]]);}const Sb=POIS[9];STREETS.push([[Sb.x-52,Sb.z],[Sb.x+52,Sb.z]]);}
 function roadDist(x,z){let m=1e9;for(const[a,b]of ROADS){const dx=b[0]-a[0],dz=b[1]-a[1],t=clamp(((x-a[0])*dx+(z-a[1])*dz)/(dx*dx+dz*dz),0,1);m=Math.min(m,Math.hypot(x-a[0]-dx*t,z-a[1]-dz*t));}return m;}
-const forestD=(x,z)=>fbm(x*.0085+11,z*.0085+4)+(Math.hypot(x+257,z+230)<128?.35:0)+(Math.hypot(x+81,z+230)<95?.3:0);
+const forestD=(x,z)=>{x/=WS;z/=WS;return fbm(x*.0085+11,z*.0085+4)+(Math.hypot(x+257,z+230)<128?.35:0)+(Math.hypot(x+81,z+230)<95?.3:0);};
 // Nebenorte: kleine Orte mit eigenem Thema in allen leeren Flächen (wie auf großen Battle-Royale-Karten: nie lange nichts)
 const MNAME={junk:'Schrottberg',build:'Rohbau',tower:'Wachturm',ruins:'Alte Mauern',camp:'Zeltlager',diner:'Burger-Eck',radio:'Funkhütte',stones:'Steinkreis',silo:'Silohof',motel:'Motel Sturmblick'};
 const MINOR=(function(){const out=[],cand=[];
-  for(let x=-345;x<=345;x+=24)for(let z=-345;z<=345;z+=24){const h=baseH(x,z);if(h<WL+2.5||h>34)continue;
-    if(POIS.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+42)||riverDist(x,z)<36||roadDist(x,z)<14||Math.hypot(x-LAKE.x,z-LAKE.z)<95)continue;
+  const ext=Math.floor(345*WS/24)*24;
+  for(let x=-ext;x<=ext;x+=24)for(let z=-ext;z<=ext;z+=24){const h=baseH(x,z);if(h<WL+2.5||h>34)continue;
+    if(POIS.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+42)||riverDist(x,z)<36*WS||roadDist(x,z)<14||Math.hypot(x-LAKE.x,z-LAKE.z)<95*WS)continue;
     let mn=h,mx=h;for(const[dx,dz]of[[-12,0],[12,0],[0,-12],[0,12]]){const q=baseH(x+dx,z+dz);mn=Math.min(mn,q);mx=Math.max(mx,q);}if(mx-mn>7)continue;cand.push([x,z,h]);}
   const md=(x,z)=>{let m=1e9;for(const p of POIS)m=Math.min(m,Math.hypot(x-p.x,z-p.z)-p.r);for(const q of out)m=Math.min(m,Math.hypot(x-q.x,z-q.z)-18);return m;};
-  for(let n=0;n<26;n++){let best=null,bd=-1;for(const c of cand){const d=md(c[0],c[1]);if(d>bd){bd=d;best=c;}}if(!best||bd<50)break;out.push({x:best[0],z:best[1],r:15,h:Math.max(1.4,best[2])});}
+  for(let n=0;n<40;n++){let best=null,bd=-1;for(const c of cand){const d=md(c[0],c[1]);if(d>bd){bd=d;best=c;}}if(!best||bd<52)break;out.push({x:best[0],z:best[1],r:15,h:Math.max(1.4,best[2])});}
   const T=Object.keys(MNAME),R=mulberry32(4242);for(let i=T.length-1;i>0;i--){const j=(R()*(i+1))|0;const t=T[i];T[i]=T[j];T[j]=t;}
-  const used=new Set();out.forEach((q,i)=>{q.type=T[i%T.length];let nm=MNAME[q.type];if(out.filter(o=>o.type===q.type).length>1)nm+=' '+(Math.abs(q.x)>Math.abs(q.z)?(q.x>0?'Ost':'West'):(q.z>0?'Süd':'Nord'));while(used.has(nm))nm+=' II';used.add(nm);q.name=nm;q.minor=true;});
+  // Namen nach der Gegend, damit sich gleiche Ortstypen unterscheiden (am See, im Wald ...), sonst nach Himmelsrichtung
+  const used=new Set(),dir=q=>Math.abs(q.x)>Math.abs(q.z)?(q.x>0?'Ost':'West'):(q.z>0?'Süd':'Nord');
+  const where=q=>{const B=bio(q.x,q.z),e=Math.pow(Math.pow(Math.abs(q.x),4)+Math.pow(Math.abs(q.z),4),.25);
+    return Math.hypot(q.x-LAKE.x,q.z-LAKE.z)<170*WS?'am See':riverDist(q.x,q.z)<70*WS?'am Fluss':B.s>.45?'im Schnee':B.d>.5?'in den Dünen':B.w>.45?'im Sumpf':B.v>.3?'am Feuerberg':e>300*WS?'an der Küste':forestD(q.x,q.z)>.3?'im Wald':q.h>16?'am Hang':null;};
+  out.forEach((q,i)=>{q.type=T[i%T.length];let nm=MNAME[q.type];
+    if(out.filter(o=>o.type===q.type).length>1){const ns=q.z>0?'Süd':'Nord',ow=q.x>0?'Ost':'West',d1=dir(q),c=[where(q),d1,d1===ns?ow:ns,ns+ow.toLowerCase()].filter(Boolean).find(s=>!used.has(nm+' '+s));nm+=' '+(c||d1);}
+    while(used.has(nm))nm+=' II';used.add(nm);q.name=nm;q.minor=true;});
   return out;})();
 const PLACES=POIS.concat(MINOR);
-const GH=470,GN=235,CS=GH*2/GN,GV=GN+1;
+const GN=Math.round(235*WS),GH=GN*2,CS=GH*2/GN,GV=GN+1;
 const TH=new Float32Array(GV*GV);
 for(let j=0;j<GV;j++)for(let i=0;i<GV;i++)TH[j*GV+i]=finalH(-GH+i*CS,-GH+j*CS);
 function terrainH(x,z){
@@ -450,7 +470,7 @@ function terrainH(x,z){
   return u+v<=1?h00+(h10-h00)*u+(h01-h00)*v:h11+(h01-h11)*(1-u)+(h10-h11)*(1-v);
 }
 // Lavaströme: laufen vom Kraterrand den Feuerberg hinunter (fest berechnet, für alle Spieler gleich)
-const LAVAP=[.35,2.55,4.6].map((a0,i)=>{const pts=[];let a=a0,d=19;for(let s=0;s<34;s++){pts.push([VOLC.x+Math.cos(a)*d,VOLC.z+Math.sin(a)*d]);d+=2.4;a+=Math.sin(s*.45+i*2)*.035;}return pts;});
+const LAVAP=[.35,2.55,4.6].map((a0,i)=>{const pts=[];let a=a0,d=19*WS;for(let s=0;s<34;s++){pts.push([VOLC.x+Math.cos(a)*d,VOLC.z+Math.sin(a)*d]);d+=2.4*WS;a+=Math.sin(s*.45+i*2)*.035;}return pts;});
 function lavaDist(x,z){let m=1e9;for(const P of LAVAP)for(let i=0;i<P.length-1;i++){const a=P[i],b=P[i+1],dx=b[0]-a[0],dz=b[1]-a[1],t=clamp(((x-a[0])*dx+(z-a[1])*dz)/(dx*dx+dz*dz),0,1);m=Math.min(m,Math.hypot(x-a[0]-dx*t,z-a[1]-dz*t));}return m;}
 const TCOL=new Float32Array(GV*GV*3),TCOLS=new Float32Array(GV*GV*3);
 let waterTex=null;
@@ -478,7 +498,7 @@ const groundTex=canTex(mkCanvas(256,256,(x,S)=>{x.fillStyle='#f0f0f0';x.fillRect
       if(B.w>0){const mo=sstep(-.2,.3,fbm(x*.05+7,z*.05+1));c=mix3(c,[lerp(.29,.21,mo),lerp(.26,.32,mo),lerp(.17,.15,mo)],B.w*.9);} // Schlamm und Moos
       if(B.v>0)c=mix3(c,[.21+n*.05,.19+n*.04,.18+n*.04],B.v); // Asche und Basalt
       if(B.s>0)c=mix3(c,[.52,.58,.53],B.s*.55); // Frostgras
-      if(B.v>0&&Math.hypot(x-VOLC.x,z-VOLC.z)<112){const ld=lavaDist(x,z);if(ld<7)c=mix3(c,[.36,.12,.06],1-sstep(2,7,ld));} // glühende Kruste am Lavastrom
+      if(B.v>0&&Math.hypot(x-VOLC.x,z-VOLC.z)<112*WS){const ld=lavaDist(x,z);if(ld<7)c=mix3(c,[.36,.12,.06],1-sstep(2,7,ld));} // glühende Kruste am Lavastrom
     }
     if(h>WL+1.8){
       const rd=roadDist(x,z);if(rd<6.5){const t=1-sstep(3.6,6.5,rd);c=[lerp(c[0],.48,t),lerp(c[1],.44,t),lerp(c[2],.37,t)];}
@@ -499,7 +519,14 @@ const groundTex=canTex(mkCanvas(256,256,(x,S)=>{x.fillStyle='#f0f0f0';x.fillRect
   const idx=new Uint32Array(GN*GN*6);let q=0;
   for(let j=0;j<GN;j++)for(let i=0;i<GN;i++){const a=j*GV+i,b=a+1,c=a+GV,d=c+1;idx[q++]=a;idx[q++]=c;idx[q++]=b;idx[q++]=b;idx[q++]=c;idx[q++]=d;}
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setAttribute('color',new THREE.BufferAttribute(TCOL,3));g.setAttribute('uv',new THREE.BufferAttribute(uvs,2));g.setIndex(new THREE.BufferAttribute(idx,1));g.computeVertexNormals();
-  {const tm=new THREE.Mesh(g,new L({vertexColors:true,map:groundTex,roughness:.96}));tm.receiveShadow=true;scene.add(tm);}
+  // Gelände in Kacheln: nur was im Blickfeld liegt, wird gezeichnet (wichtig für die große Karte). Normalen aus dem Ganzen, damit keine Nähte entstehen.
+  {const NRM=g.attributes.normal.array,CH=44,tmat=new L({vertexColors:true,map:groundTex,roughness:.96});
+    for(let cj=0;cj<GN;cj+=CH)for(let ci=0;ci<GN;ci+=CH){const w=Math.min(GN,ci+CH)-ci+1,hh=Math.min(GN,cj+CH)-cj+1,n=w*hh,P=new Float32Array(n*3),NN=new Float32Array(n*3),C=new Float32Array(n*3),U=new Float32Array(n*2);
+      for(let j=0;j<hh;j++)for(let i=0;i<w;i++){const s=(cj+j)*GV+ci+i,d=j*w+i;for(let q=0;q<3;q++){P[d*3+q]=pos[s*3+q];NN[d*3+q]=NRM[s*3+q];C[d*3+q]=TCOL[s*3+q];}U[d*2]=uvs[s*2];U[d*2+1]=uvs[s*2+1];}
+      const ix=new Uint32Array((w-1)*(hh-1)*6);let q=0;for(let j=0;j<hh-1;j++)for(let i=0;i<w-1;i++){const a=j*w+i,b=a+1,c=a+w,d=c+1;ix[q++]=a;ix[q++]=c;ix[q++]=b;ix[q++]=b;ix[q++]=c;ix[q++]=d;}
+      const cg=new THREE.BufferGeometry();cg.setAttribute('position',new THREE.BufferAttribute(P,3));cg.setAttribute('normal',new THREE.BufferAttribute(NN,3));cg.setAttribute('color',new THREE.BufferAttribute(C,3));cg.setAttribute('uv',new THREE.BufferAttribute(U,2));cg.setIndex(new THREE.BufferAttribute(ix,1));cg.computeBoundingSphere();
+      const tm=new THREE.Mesh(cg,tmat);tm.receiveShadow=true;scene.add(tm);}
+    g.dispose();}
   waterTex=(()=>{const S=256,c=document.createElement('canvas');c.width=c.height=S;const x=c.getContext('2d'),img=x.createImageData(S,S),W=[];
     for(let i=0;i<16;i++)W.push([((Math.random()*11)|0)-5||1,((Math.random()*11)|0)-5||2,rand(.3,1)/(1+i*.3),rand(0,6.28)]);
     for(let j=0;j<S;j++)for(let i=0;i<S;i++){let dx=0,dz=0;const u=i/S,v=j/S;for(const[a,b,amp,ph]of W){const cc=Math.cos(6.2832*(a*u+b*v)+ph)*amp;dx+=cc*a;dz+=cc*b;}
@@ -842,8 +869,8 @@ let TEAM=1,reviveTgt=null,reviveP=0,wipeT=0;const TMC=['#4fc3ff','#ffd23f','#7df
 let useT=0,useDur=0,flashT=0,hitT=0,msgT=0,kickT=0,nameT=0,poiT=0,curPoi=null,cullT=0,actTarget=null,lastFireDown=false,warnT=0;
 let aimLock=null,assistT=null,assistSince=0,autoT=0,sprinting=false,coyote=0,jumpBuf=0,stepT=0,recoilKick=0,lastShotT=-9,camDip=0,camY=null,slowT=0,lowT=0,sparkT=0,actShown=null,streak=0,lastKillT=-99,chestsOpened=0,shakeT=0,fogK=0;const grenades=[];
 const DIFFS=[{acc:1.5,dmg:1,react:.8,fort:.3,melee:1,cap:2,settle:2},{acc:1.05,dmg:1,react:.4,fort:.55,melee:1,cap:3,settle:1.5},{acc:.8,dmg:1,react:.15,fort:.75,melee:1,cap:4,settle:1}];let DIFF=DIFFS[1];
-const storm={phase:0,mode:'wait',t:0,cx:0,cz:0,r:620,fx:0,fz:0,fr:620,tx:0,tz:0,tr:620,tick:0};
-const PHASES=[{w:60,s:50,r:400,d:1},{w:50,s:45,r:270,d:1},{w:45,s:40,r:180,d:2},{w:40,s:35,r:115,d:3},{w:35,s:30,r:72,d:5},{w:30,s:25,r:40,d:7},{w:25,s:22,r:18,d:9},{w:20,s:20,r:6,d:11},{w:10,s:25,r:0,d:14}];
+const storm={phase:0,mode:'wait',t:0,cx:0,cz:0,r:620*WS,fx:0,fz:0,fr:620*WS,tx:0,tz:0,tr:620*WS,tick:0};
+const PHASES=[{w:75,s:65,r:600,d:1},{w:62,s:58,r:405,d:1},{w:55,s:50,r:270,d:2},{w:48,s:42,r:172,d:3},{w:40,s:35,r:105,d:5},{w:32,s:28,r:56,d:7},{w:26,s:24,r:24,d:9},{w:20,s:20,r:8,d:11},{w:10,s:25,r:0,d:14}]; // auf die große Karte abgestimmt (WS 1.5)
 const bus={a:new V3(),b:new V3(),pos:new V3(),dir:new V3(),t:0,dur:25,active:false};
 const NAMES=(()=>{const out=['Blitz','Kralle','Nova','Raptor','Viper','Echo','Titan','Pixel','Rex','Luna','Zorro','Bruno','Kobra','Falke','Ninja','Rakete','Sumo','Turbo','Wolf','Geist','Jinx','Orca','Panda','Yeti','Komet','Drache','Hydra','Bolt','Frost','Glitch','Krake','Lynx','Maverick','Nebel','Onyx','Phantom','Quarz','Sturmi','Tornado'],
   p=['Schatten','Eis','Stahl','Nacht','Donner','Wild','Dunkel','Gold','Silber','Rot','Grau','Berg','Wald','See','Feuer'],s=['wolf','falke','jäger','fuchs','bär','hai','tiger','reiter','klinge','adler','luchs','rabe'],R2=mulberry32(7);
@@ -870,18 +897,18 @@ function chunkInst(geo,mat,items,o){
   const tuftG=mergeG([[new THREE.ConeGeometry(.04,.55,3,1,true),MR(0,.26,0,.12,0)],[new THREE.ConeGeometry(.035,.45,3,1,true),MR(.06,.2,.03,-.25,.3)],[new THREE.ConeGeometry(.035,.5,3,1,true),MR(-.05,.23,-.04,.3,-.25)]]);
   const flG=mergeG([[new THREE.CylinderGeometry(.015,.015,.45,3),M4(0,.22,0)],[new THREE.OctahedronGeometry(.07,0),M4(0,.46,0)]]);
   const FC=[0xf2f0e6,0xe8d36a,0xb9a0d8,0x9fb8e0,0xe8e4f0],white=new L({color:0xffffff});
-  const gather=(n,isF)=>{const out=[];let k=0;while(out.length<n&&k<n*6){k++;const x=rr2(-385,385),z=rr2(-385,385),h=terrainH(x,z);
+  const gather=(n,isF)=>{const out=[];let k=0;while(out.length<n&&k<n*6){k++;const x=rr2(-385*WS,385*WS),z=rr2(-385*WS,385*WS),h=terrainH(x,z);
       if(h<WL+2.2||h>30||roadDist(x,z)<4.5)continue;if(PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r-3&&p.type!=='castle'))continue;
       {const B=bio(x,z);if(B.d>.45||B.v>.3||(B.s>.5&&h>11)||(isF&&B.d+B.v+B.s+B.w>.25))continue;} // kein Gras in Wüste, Lava und Schnee
       const sc=rr2(.7,1.25),ry=rr2(0,6.28),sy=sc*rr2(.8,1.3);out.push({x,y:h,z,ry,s:[sc,sy,sc],c:isF?FC[(R2()*FC.length)|0]:col.setHSL(rr2(.17,.27),rr2(.3,.5),rr2(.3,.42)).getHex()});}return out;};
-  for(const im of chunkInst(tuftG,white,gather(5200,false),{keep:true,cy:.3,pad:2})){im.userData.deco=1;smallChunks.push(im);}
-  for(const im of chunkInst(flG,white,gather(900,true),{keep:true,cy:.4,pad:2})){im.userData.deco=1;smallChunks.push(im);}
+  for(const im of chunkInst(tuftG,white,gather(Math.round(5200*WS*WS),false),{keep:true,cy:.3,pad:2})){im.userData.deco=1;smallChunks.push(im);}
+  for(const im of chunkInst(flG,white,gather(Math.round(900*WS*WS),true),{keep:true,cy:.4,pad:2})){im.userData.deco=1;smallChunks.push(im);}
   // Blumenwiesen: dichte, bunte Flecken an vier Stellen
-  {const MC=[[100,110],[-150,-20],[230,-60],[-60,230]],FC2=[0xff4d6d,0xffd23f,0xb57cff,0x4dc3ff,0xff8a3d,0xffffff],out=[];let k=0;
-    while(out.length<1700&&k<9000){k++;const c=MC[(R2()*MC.length)|0],a=R2()*6.28,r=Math.sqrt(R2())*42,x=c[0]+Math.cos(a)*r,z=c[1]+Math.sin(a)*r,h=terrainH(x,z);
+  {const MC=[[100,110],[-150,-20],[230,-60],[-60,230]].map(c=>[c[0]*WS,c[1]*WS]),FC2=[0xff4d6d,0xffd23f,0xb57cff,0x4dc3ff,0xff8a3d,0xffffff],out=[];let k=0;
+    while(out.length<2400&&k<14000){k++;const c=MC[(R2()*MC.length)|0],a=R2()*6.28,r=Math.sqrt(R2())*50,x=c[0]+Math.cos(a)*r,z=c[1]+Math.sin(a)*r,h=terrainH(x,z);
       if(h<WL+2.2||roadDist(x,z)<4.5||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r))continue;const sc=rr2(.8,1.4);out.push({x,y:h,z,ry:rr2(0,6.28),s:[sc,sc*rr2(.9,1.3),sc],c:FC2[(R2()*FC2.length)|0]});}
     for(const im of chunkInst(flG,white,out,{keep:true,cy:.4,pad:2})){im.userData.deco=1;smallChunks.push(im);}}
-  const bush=[];let k=0;while(bush.length<1150&&k<9000){k++;const x=rr2(-385,385),z=rr2(-385,385),h=terrainH(x,z);if(h<WL+2||h>32||roadDist(x,z)<5||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+2))continue;
+  const bush=[];let k=0;while(bush.length<1150*WS*WS&&k<9000*WS*WS){k++;const x=rr2(-385*WS,385*WS),z=rr2(-385*WS,385*WS),h=terrainH(x,z);if(h<WL+2||h>32||roadDist(x,z)<5||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+2))continue;
     const B=bio(x,z);if(B.v>.3||(B.d>.45&&rr2(0,1)<.6))continue;
     const bc=B.d>.45?col.setHSL(rr2(.08,.11),rr2(.25,.4),rr2(.3,.4)):B.s>.45?col.setHSL(rr2(.3,.4),rr2(.08,.18),rr2(.5,.62)):B.w>.45?col.setHSL(rr2(.2,.26),rr2(.3,.4),rr2(.16,.22)):col.setHSL(rr2(.2,.3),rr2(.3,.45),rr2(.24,.34)); // Büsche: trocken, verschneit, sumpfig
     const sc=rr2(.55,1.15),ry=rr2(0,6.28);bush.push({x,y:h+.25*sc,z,ry,s:[sc*rr2(.9,1.3),sc*rr2(.6,.85),sc*rr2(.9,1.3)],c:bc.getHex()});}
@@ -996,7 +1023,7 @@ function houseLoot(hs,chestP,lootP){
   for(const fl of(hs.floors||[]).slice(1))for(let i=0;i<k;i++){const q=freeSpot(fl);LOOTSP.push({x:q[0],y:fl.fy,z:q[1],door:hs.door});}
   {const q=freeSpot(hs);AMMOSP.push({x:q[0],y:hs.fy,z:q[1],door:hs.door,rot:Math.floor(Math.random()*4)*Math.PI/2});}
 }
-const LOOTSP=[],AMMOSP=[],LOOT_N=98,AMMO_N=55;
+const LOOTSP=[],AMMOSP=[],LOOT_N=Math.round(98*WS),AMMO_N=Math.round(55*WS);
 function spawnLootSpots(){const mix=a=>{for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;const t=a[i];a[i]=a[j];a[j]=t;}return a;};
   for(const q of mix(LOOTSP).slice(0,LOOT_N)){const n0=floorItems.length;floorLoot(q.x,q.y,q.z);if(q.door)for(let i=n0;i<floorItems.length;i++)floorItems[i].door=q.door;}
   for(const q of mix(AMMOSP).slice(0,AMMO_N)){const c=ammoBoxAt(q.x,q.y,q.z,q.rot||0);if(q.door)c.door=q.door;}
@@ -1024,7 +1051,7 @@ function furnPlace(tp,cx,cz,y,ry){const f=furnGeo()[tp],side=Math.abs(Math.sin(r
 // Straßenlaternen an den Landstraßen, Kisten und Fässer an Industrie, Hafen, Militär, Tankstelle, Steinbruch, Camping
 function propsMore(){
   for(const[a,b]of ROADS){const dx=b[0]-a[0],dz=b[1]-a[1],L=Math.hypot(dx,dz),nx=-dz/L,nz=dx/L;let sd=1;
-    for(let t=14;t<L-8;t+=30){sd=-sd;const px=a[0]+dx*t/L+nx*4.6*sd,pz=a[1]+dz*t/L+nz*4.6*sd,py=terrainH(px,pz);
+    for(let t=14;t<L-8;t+=36){sd=-sd;const px=a[0]+dx*t/L+nx*4.6*sd,pz=a[1]+dz*t/L+nz*4.6*sd,py=terrainH(px,pz);
       if(py<WL+1||PLACES.some(p=>Math.hypot(px-p.x,pz-p.z)<p.r*.5)||cellSolids(px,pz).some(s=>px>s.min.x-.8&&px<s.max.x+.8&&pz>s.min.z-.8&&pz<s.max.z+.8))continue;
       const tx=-nx*sd,tz=-nz*sd,ry=Math.atan2(-tz,tx);
       DECO.push(CYv(.07,.1,4.4,px,py+2.2,pz,0x2f3338,6),CYv(.17,.17,.3,px,py+.15,pz,0x2f3338,8),BX(1,.08,.08,px+tx*.45,py+4.35,pz+tz*.45,0x2f3338,0,ry,0),BX(.55,.16,.4,px+tx*.95,py+4.3,pz+tz*.95,0x2f3338,0,ry,0),BX(.46,.05,.32,px+tx*.95,py+4.2,pz+tz*.95,0xfff2b0,0,ry,0));}}
@@ -1116,9 +1143,9 @@ function buildRiver(){
   const seg=(p,q,r,s)=>{const d=(q[0]-p[0])*(s[1]-r[1])-(q[1]-p[1])*(s[0]-r[0]);if(Math.abs(d)<1e-6)return null;const t=((r[0]-p[0])*(s[1]-r[1])-(r[1]-p[1])*(s[0]-r[0]))/d,u=((r[0]-p[0])*(q[1]-p[1])-(r[1]-p[1])*(q[0]-p[0]))/d;return t>=0&&t<=1&&u>=0&&u<=1?[p[0]+(q[0]-p[0])*t,p[1]+(q[1]-p[1])*t]:null;};
   const parts=[];
   for(const[a,b]of ROADS)for(let i=0;i<RIVER.length-1;i++){const I=seg(a,b,RIVER[i],RIVER[i+1]);if(!I)continue;
-    const L0=Math.hypot(b[0]-a[0],b[1]-a[1]),ux=(b[0]-a[0])/L0,uz=(b[1]-a[1])/L0,half=24,y=Math.max(terrainH(I[0]-ux*half,I[1]-uz*half),terrainH(I[0]+ux*half,I[1]+uz*half),WL+1.2)+.3,ry=Math.atan2(-uz,ux);
+    const L0=Math.hypot(b[0]-a[0],b[1]-a[1]),ux=(b[0]-a[0])/L0,uz=(b[1]-a[1])/L0,half=24*WS,y=Math.max(terrainH(I[0]-ux*half,I[1]-uz*half),terrainH(I[0]+ux*half,I[1]+uz*half),WL+1.2)+.3,ry=Math.atan2(-uz,ux);
     parts.push(BX(half*2,.5,6.4,I[0],y-.25,I[1],0x8a8680,0,ry,0),BX(half*2,.9,.25,I[0]-uz*3.1,y+.45,I[1]+ux*3.1,0xd8d4cc,0,ry,0),BX(half*2,.9,.25,I[0]+uz*3.1,y+.45,I[1]-ux*3.1,0xd8d4cc,0,ry,0));
-    for(const k of[-14,-5,5,14]){const px=I[0]+ux*k,pz=I[1]+uz*k,b0=terrainH(px,pz),ph=y-.5-b0;if(ph>.5)parts.push(BX(1.2,ph,4.6,px,b0+ph/2,pz,0x9a968e,0,ry,0));}
+    for(const k of[-14*WS,-5*WS,5*WS,14*WS]){const px=I[0]+ux*k,pz=I[1]+uz*k,b0=terrainH(px,pz),ph=y-.5-b0;if(ph>.5)parts.push(BX(1.2,ph,4.6,px,b0+ph/2,pz,0x9a968e,0,ry,0));}
     for(let k=-half+2;k<=half-2;k+=4)for(const sg of[-1,1])parts.push(BX(.3,1.2,.3,I[0]+ux*k-uz*3.1*sg,y+.6,I[1]+uz*k+ux*3.1*sg,0xbfbab0));
     // begehbare Fläche: in Stücke zerlegt, damit die Kollision auch bei schrägen Straßen passt
     for(let k=-half;k<half;k+=3){const cx=I[0]+ux*(k+1.5),cz=I[1]+uz*(k+1.5),ex=Math.abs(ux)*1.6+Math.abs(uz)*3.1,ez=Math.abs(uz)*1.6+Math.abs(ux)*3.1;addSolid({min:new V3(cx-ex,y-.5,cz-ez),max:new V3(cx+ex,y,cz+ez)});}
@@ -1126,12 +1153,12 @@ function buildRiver(){
   if(parts.length){const g=mergeGC(parts);g.userData.tmp=true;const m=new THREE.Mesh(g,VCM);m.castShadow=m.receiveShadow=true;worldRoot.add(m);}
   // Wasserfall am Anfang der Schlucht
   const a=RIVER[0],b=RIVER[1],l=Math.hypot(a[0]-b[0],a[1]-b[1]),ux=(a[0]-b[0])/l,uz=(a[1]-b[1])/l;let best=0,bx=a[0],bz=a[1];
-  for(let d=6;d<=30;d+=2){const x=a[0]+ux*d,z=a[1]+uz*d,h=terrainH(x,z);if(h>best){best=h;bx=x;bz=z;}}
-  const top=best+.6,bot=WL-.2,hgt=top-bot,fx=a[0]+ux*13,fz=a[1]+uz*13;
+  for(let d=6*WS;d<=30*WS;d+=2){const x=a[0]+ux*d,z=a[1]+uz*d,h=terrainH(x,z);if(h>best){best=h;bx=x;bz=z;}}
+  const top=best+.6,bot=WL-.2,hgt=top-bot,fx=a[0]+ux*13*WS,fz=a[1]+uz*13*WS;
   if(!FALL.mat){const tx=canTex(mkCanvas(64,256,(x,W,H)=>{x.fillStyle='rgba(190,230,255,.55)';x.fillRect(0,0,W,H);for(let i=0;i<70;i++){const px=Math.random()*W,w=1+Math.random()*3,a2=.25+Math.random()*.6;x.fillStyle=`rgba(255,255,255,${a2})`;x.fillRect(px,Math.random()*H,w,20+Math.random()*90);}}));
     tx.wrapT=THREE.RepeatWrapping;FALL.mat=new THREE.MeshBasicMaterial({map:tx,transparent:true,depthWrite:false,side:THREE.DoubleSide,opacity:.92});}
-  FALL.mat.map.repeat.set(1,hgt/10);const fg=new THREE.PlaneGeometry(9,hgt,1,1);fg.userData.tmp=true;const fm=new THREE.Mesh(fg,FALL.mat);fm.position.set(fx,bot+hgt/2,fz);fm.rotation.y=Math.atan2(-ux,-uz);fm.renderOrder=2;worldRoot.add(fm);
-  Object.assign(FALL,{x:a[0]+ux*10,z:a[1]+uz*10,top,bot,mesh:fm});}
+  FALL.mat.map.repeat.set(1,hgt/10);const fg=new THREE.PlaneGeometry(9*WS,hgt,1,1);fg.userData.tmp=true;const fm=new THREE.Mesh(fg,FALL.mat);fm.position.set(fx,bot+hgt/2,fz);fm.rotation.y=Math.atan2(-ux,-uz);fm.renderOrder=2;worldRoot.add(fm);
+  Object.assign(FALL,{x:a[0]+ux*10*WS,z:a[1]+uz*10*WS,top,bot,mesh:fm});}
 function riverTick(dt){if(FALL.mat)FALL.mat.map.offset.y+=dt*1.4;if(waterTex){waterTex.offset.x+=dt*.011;waterTex.offset.y+=dt*.006;}
   if(FALL.mesh&&player&&Math.abs(player.pos.x-FALL.x)+Math.abs(player.pos.z-FALL.z)<160){FALL.mistT-=dt;if(FALL.mistT<=0){FALL.mistT=.12;spawnPuff(_tp2.set(FALL.x+rand(-3.5,3.5),FALL.bot+rand(.2,1.5),FALL.z+rand(-3.5,3.5)),0xf4faff,2.2,2.5,1.4);}}}
 /* ---------- Sprungpilze: riesige Pilze im Wald, drauf landen = hoch in die Luft ---------- */
@@ -1139,7 +1166,7 @@ const MUSH=[];let MUSH_GEO=null;
 function mushGeo(col){const spots=[];for(let i=0;i<14;i++){const a=i*2.4,r=.55+(i%3)*.5,y=Math.sqrt(Math.max(0,1-(r/2.6)**2))*1.35;spots.push(SPH(.28-.04*(i%3),Math.cos(a)*r,y+.02,Math.sin(a)*r,0xfff8ee,1,.35,1,8,4));}
   return mergeGC([CYv(.55,.75,3.2,0,1.6,0,0xf2e8d2,12),CYv(2.5,2.5,.12,0,3.2,0,0xe8dcc0,20),[new THREE.SphereGeometry(2.6,20,10,0,Math.PI*2,0,Math.PI/2),M4R(0,3.2,0,0,0,0,1,.52,1),col],...spots.map(s=>{s[1]=M4R(s[1].elements[12],3.2+s[1].elements[13],s[1].elements[14],0,0,0,1,.35,1);return s;})]);}
 function buildMushrooms(){MUSH.length=0;if(!MUSH_GEO)MUSH_GEO=[0xd8343a,0x7a4ad8,0x2f8fe0].map(mushGeo);const items=[];
-  for(let n=0,k=0;n<16&&k<4000;k++){const x=rr(-370,370),z=rr(-370,370),h=terrainH(x,z);if(h<WL+2||h>30||forestD(x,z)<.18||roadDist(x,z)<7||riverDist(x,z)<26)continue;
+  for(let n=0,k=0;n<24&&k<6000;k++){const x=rr(-370*WS,370*WS),z=rr(-370*WS,370*WS),h=terrainH(x,z);if(h<WL+2||h>30||forestD(x,z)<.18||roadDist(x,z)<7||riverDist(x,z)<26*WS)continue;
     if(PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+8)||cellSolids(x,z).some(s=>x>s.min.x-4&&x<s.max.x+4&&z>s.min.z-4&&z<s.max.z+4))continue;
     const sc=rr(.9,1.25),ci=n%3,g=new THREE.Mesh(MUSH_GEO[ci],VCM);g.position.set(x,h-.1,z);g.scale.setScalar(sc);g.rotation.y=rr(0,6.28);g.castShadow=true;g.receiveShadow=true;worldRoot.add(g);
     const top=h-.1+(3.2+.52*2.6*.9)*sc;addSolid({min:new V3(x-.6*sc,h,z-.6*sc),max:new V3(x+.6*sc,top-.6,z+.6*sc)});addSolid({min:new V3(x-1.7*sc,top-.5,z-1.7*sc),max:new V3(x+1.7*sc,top,z+1.7*sc)});
@@ -1242,17 +1269,17 @@ const MB={
     const py=terrainH(q.x,q.z-9);sbox(q.x,py-.4,q.z-9,10,.8,4.5,MAT.concrete,2000,0);const wm=new THREE.Mesh(G.box,MAT.water);wm.scale.set(9,.1,3.5);wm.position.set(q.x,py+.02,q.z-9);worldRoot.add(wm);
     carAt(q.x-12,q.z-6,false);carAt(q.x+10,q.z-12,true);mLoot(q,2);}};
 // Felsnadeln: hohe Felstürme als Orientierung und Deckung
-function buildSpires(){for(let n=0,k=0;n<9&&k<700;k++){const x=rr(-360,360),z=rr(-360,360),h=terrainH(x,z);
-    if(h<WL+2||h>28||roadDist(x,z)<10||riverDist(x,z)<30||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+18)||cellSolids(x,z).some(s=>x>s.min.x-6&&x<s.max.x+6&&z>s.min.z-6&&z<s.max.z+6))continue;
+function buildSpires(){for(let n=0,k=0;n<14&&k<1100;k++){const x=rr(-360*WS,360*WS),z=rr(-360*WS,360*WS),h=terrainH(x,z);
+    if(h<WL+2||h>28||roadDist(x,z)<10||riverDist(x,z)<30*WS||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+18)||cellSolids(x,z).some(s=>x>s.min.x-6&&x<s.max.x+6&&z>s.min.z-6&&z<s.max.z+6))continue;
     const H=rr(13,23),seg=4,mt=bio(x,z).d>.5?wonderAssets().rockRed:MAT.rock;let y=h-1;
     for(let i=0;i<seg;i++){const sc=lerp(4.4,1.7,i/seg)*rr(.85,1.1),sh=H/seg*1.4,m=new THREE.Mesh(ROCKG[(i+n)%3],mt);m.scale.set(sc,sh,sc*rr(.8,1.1));m.position.set(x+rr(-.5,.5),y+sh*.45,z+rr(-.5,.5));m.rotation.y=rr(0,6.28);m.castShadow=m.receiveShadow=true;worldRoot.add(m);y+=H/seg;}
     addSolid({min:new V3(x-2.7,h-1,z-2.7),max:new V3(x+2.7,h+H,z+2.7)});mapRects.push([x,z,5,5,'#8f8a82']);n++;}}
 // Bewegung über die Karte: Seilbahnen von den Tafelbergen und feste Sprungpads am Rand der Orte
 function freeSpotAt(x,z,r){for(let k=0;k<40;k++){const a=k*2.4,d=k?3+k*.6:0,qx=x+Math.cos(a)*d,qz=z+Math.sin(a)*d,h=terrainH(qx,qz);
-    if(h<WL+2||roadDist(qx,qz)<6||riverDist(qx,qz)<26||PLACES.some(p=>Math.hypot(qx-p.x,qz-p.z)<p.r+8)||cellSolids(qx,qz).some(s=>qx>s.min.x-r&&qx<s.max.x+r&&qz>s.min.z-r&&qz<s.max.z+r))continue;return[qx,qz];}return null;}
+    if(h<WL+2||roadDist(qx,qz)<6||riverDist(qx,qz)<26*WS||PLACES.some(p=>Math.hypot(qx-p.x,qz-p.z)<p.r+8)||cellSolids(qx,qz).some(s=>qx>s.min.x-r&&qx<s.max.x+r&&qz>s.min.z-r&&qz<s.max.z+r))continue;return[qx,qz];}return null;}
 function buildMobility(){
   for(const[a,b,l0,l1]of[[[-185,95],[-262,30],'Zur Burg','Zum Tafelberg'],[[70,150],[30,88],'Zur Stadt','Zum Tafelberg'],[[-20,-215],[35,-262],'Zum Windpark','Zum Tafelberg']]){
-    const A=freeSpotAt(a[0],a[1],5),B=freeSpotAt(b[0],b[1],5);if(A&&B)buildZip(A[0],A[1],B[0],B[1],l0,l1);}
+    const A=freeSpotAt(a[0]*WS,a[1]*WS,5),B=freeSpotAt(b[0]*WS,b[1]*WS,5);if(A&&B)buildZip(A[0],A[1],B[0],B[1],l0,l1);}
   for(const p of POIS){if(p.noFlat||p.type==='volcano')continue;const a=(p.x*7+p.z*3)%6.28,q=freeSpotAt(p.x+Math.cos(a)*(p.r+10),p.z+Math.sin(a)*(p.r+10),2.5);if(q)addPad(q[0],terrainH(q[0],q[1])+.02,q[1],true);}
   for(const T of TERR){const q=freeSpotAt(T.x+T.r*1.6,T.z,2.5);if(q)addPad(q[0],terrainH(q[0],q[1])+.02,q[1],true);}}
 function buildMinor(){for(const q of MINOR){const b=MB[q.type];if(b)try{b(q);}catch(e){console.warn('Nebenort',q.type,e);}}}
@@ -1410,8 +1437,9 @@ const BUILD={
     const b=house(p.x+12,p.z+14,14,10,5,{key:'mRed',draw:DRAW.metal('#a85a4a'),doors:[0],mapCol:'#c07a6a'});houseLoot(b,.8,.8);
     for(let i=0;i<6;i++)containerAt(p.x-20+i*3.2,p.z-12,false,1+((RNG()*2)|0));
     const dx=LAKE.x-p.x,dz=LAKE.z-p.z,ax=Math.abs(dx)>Math.abs(dz),sx=ax?Math.sign(dx):0,sz=ax?0:Math.sign(dz);
-    let px=p.x+sx*16,pz=p.z+sz*16;for(let i=0;i<7;i++){sbox(px,WL+.6,pz,4,.5,4,new L({map:woodTex}),400,6);px+=sx*4;pz+=sz*4;}
-    chestAt(px-sx*4,WL+.86,pz-sz*4,0);mapRects.push([p.x+sx*28,p.z+sz*28,ax?28:4,ax?4:28,'#a07040']);},
+    let px=p.x+sx*16,pz=p.z+sz*16;for(let k=0;k<16&&terrainH(px,pz)>WL+.4;k++){px+=sx*4;pz+=sz*4;} // Steg beginnt am Ufer, auch wenn der See weiter weg liegt
+    const p0x=px,p0z=pz;let n=0;for(;n<12;n++){sbox(px,WL+.6,pz,4,.5,4,new L({map:woodTex}),400,6);px+=sx*4;pz+=sz*4;if(n>=5&&terrainH(px,pz)<WL-.8)break;}
+    chestAt(px-sx*4,WL+.86,pz-sz*4,0);mapRects.push([(p0x+px-sx*4)/2,(p0z+pz-sz*4)/2,ax?(n+1)*4:4,ax?4:(n+1)*4,'#a07040']);},
   peak(p){const hs=house(p.x-4,p.z,7,6,3.6,{key:'wood',draw:DRAW.wood('#8a5a33'),mapCol:'#a07040'});houseLoot(hs,1,1);
     const y=terrainH(p.x+6,p.z+4);sbox(p.x+6,y+11,p.z+4,.6,22,.6,MAT.steel,900,4);for(let k=1;k<4;k++)sbox(p.x+6,y+k*5.5,p.z+4,3,.25,.25,MAT.steel,300,2);
     chestAt(p.x+3,terrainH(p.x+3,p.z-6)+.02,p.z-6,0);},
@@ -1528,9 +1556,9 @@ BUILD.volcano=function(p){const A=wonderAssets(),ly=terrainH(VOLC.x,VOLC.z)+1.1;
     const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));g.setIndex(idx);g.computeVertexNormals();g.userData.tmp=true;
     worldRoot.add(new THREE.Mesh(g,A.lavaMat));for(let i=0;i<P.length;i+=2)mapRects.push([P[i][0],P[i][1],4,4,'#ff7a1a']);}
   mapRects.push([VOLC.x,VOLC.z,VOLC.lavaR*1.8,VOLC.lavaR*1.8,'#ff6a10']);
-  const gl=new THREE.Sprite(A.glow);gl.scale.set(46,22,1);gl.position.set(VOLC.x,ly+6,VOLC.z);worldRoot.add(gl);
-  const hs=house(VOLC.x-96,VOLC.z+4,9,7,3.8,{key:'mGray',doors:[1],mapCol:'#9aa0a8'});houseLoot(hs,1,1); // Messstation am Fuß: gutes Loot
-  for(const a of[1.2,3.9]){const x=VOLC.x+Math.cos(a)*28,z=VOLC.z+Math.sin(a)*28;chestAt(x,terrainH(x,z)+.02,z,a);} // Truhen am Kraterrand
+  const gl=new THREE.Sprite(A.glow);gl.scale.set(46*WS,22*WS,1);gl.position.set(VOLC.x,ly+6,VOLC.z);worldRoot.add(gl);
+  const hs=house(VOLC.x-96*WS,VOLC.z+4,9,7,3.8,{key:'mGray',doors:[1],mapCol:'#9aa0a8'});houseLoot(hs,1,1); // Messstation am Fuß: gutes Loot
+  for(const a of[1.2,3.9]){const x=VOLC.x+Math.cos(a)*28*WS,z=VOLC.z+Math.sin(a)*28*WS;chestAt(x,terrainH(x,z)+.02,z,a);} // Truhen am Kraterrand
   WON.plume=smokeAt(VOLC.x,ly+4,VOLC.z,9,1,90);};
 BUILD.airship=function(p){const A=wonderAssets(),y0=terrainH(p.x,p.z),cx=p.x,cz=p.z,R=8.2,L=27,yc=y0+R*.72;
   const grp=new THREE.Group();grp.position.set(cx,yc,cz);grp.rotation.z=-.1;worldRoot.add(grp); // Nase steckt im Boden
@@ -1570,16 +1598,16 @@ function addGeyser(x,y,z,off){const A=wonderAssets(),vol=bio(x,z).v>.3;
   const col=new THREE.Sprite(wonderAssets().steam.clone());col.material.userData.tmp=true;col.scale.set(4,20,1);col.position.set(x,y+10,z);col.visible=false;worldRoot.add(col);
   WON.geys.push({x,y,z,off,col,act:false,was:false});mapRects.push([x,z,3,3,'#f4f0dc']);}
 function buildWonders(){WON.zips=[];WON.geys=[];WON.bombs.length=0;WON.ep=-99;
-  buildZip(182,-128,238,-232,'Zum Gipfel','Ins Tal'); // Gipfelbahn: vom Steinbruch-Tal zur Gipfelstation
+  buildZip(182*WS,-128*WS,238*WS,-232*WS,'Zum Gipfel','Ins Tal'); // Gipfelbahn: vom Steinbruch-Tal zur Gipfelstation
   PORTALS.forEach((pr,i)=>{addPortal(pr[0],pr[1],i);addPortal(pr[1],pr[0],i);}); // Portal-Paare
   for(const[x,z]of STATIONS)addStation(x,z); // Funkstationen
-  let n=0,k=0;while(n<7&&k<600){k++;const vol=n>=5,a=rr(0,6.283),x=vol?VOLC.x+Math.cos(a)*rr(62,100):rr(110,340),z=vol?VOLC.z+Math.sin(a)*rr(62,100):rr(160,355),B=bio(x,z); // Geysire
-    if(!vol&&B.d<.6)continue;const h=terrainH(x,z);if(h<WL+2||roadDist(x,z)<7||PLACES.some(q=>Math.hypot(x-q.x,z-q.z)<q.r+8)||MESAS.some(m=>Math.hypot(x-m.x,z-m.z)<m.r+5)||lavaDist(x,z)<8||WON.geys.some(g=>Math.hypot(g.x-x,g.z-z)<40))continue;
+  let n=0,k=0;while(n<7&&k<600){k++;const vol=n>=5,a=rr(0,6.283),x=vol?VOLC.x+Math.cos(a)*rr(62,100)*WS:rr(110,340)*WS,z=vol?VOLC.z+Math.sin(a)*rr(62,100)*WS:rr(160,355)*WS,B=bio(x,z); // Geysire
+    if(!vol&&B.d<.6)continue;const h=terrainH(x,z);if(h<WL+2||roadDist(x,z)<7||PLACES.some(q=>Math.hypot(x-q.x,z-q.z)<q.r+8)||MESAS.some(m=>Math.hypot(x-m.x,z-m.z)<m.r+5)||lavaDist(x,z)<8||WON.geys.some(g=>Math.hypot(g.x-x,g.z-z)<40*WS))continue;
     addGeyser(x,h,z,n*3.7);n++;}}
-function inLava(e){const p=e.pos,dv=Math.hypot(p.x-VOLC.x,p.z-VOLC.z);if(dv>112)return false;if(dv<VOLC.lavaR+1.5&&p.y<VOLC.lavaY+1.4)return true;return p.y-terrainH(p.x,p.z)<1.2&&lavaDist(p.x,p.z)<2;}
+function inLava(e){const p=e.pos,dv=Math.hypot(p.x-VOLC.x,p.z-VOLC.z);if(dv>112*WS)return false;if(dv<VOLC.lavaR+1.5&&p.y<VOLC.lavaY+1.4)return true;return p.y-terrainH(p.x,p.z)<1.2&&lavaDist(p.x,p.z)<2;}
 function erupt(ep){const R=mulberry32(((MP.inMatch?MP.seed:7)*31+ep*977)|0),near=player?Math.hypot(player.pos.x-VOLC.x,player.pos.z-VOLC.z):999;
   sfx('boom',1,{x:VOLC.x,y:VOLC.lavaY+6,z:VOLC.z});if(near<260)shakeT=Math.max(shakeT,.6*(1-near/260));if(near<420)banner('FEUERBERG BRICHT AUS!');
-  for(let i=0;i<9;i++){const a=R()*6.283,d=25+R()*95,tx=VOLC.x+Math.cos(a)*d,tz=VOLC.z+Math.sin(a)*d;WON.bombs.push({sx:VOLC.x,sy:VOLC.lavaY+3,sz:VOLC.z,tx,ty:terrainH(tx,tz),tz,t:-i*.18,T:2.6+R()*1.2,H:40+R()*30,m:null});}}
+  for(let i=0;i<9;i++){const a=R()*6.283,d=(25+R()*95)*WS,tx=VOLC.x+Math.cos(a)*d,tz=VOLC.z+Math.sin(a)*d;WON.bombs.push({sx:VOLC.x,sy:VOLC.lavaY+3,sz:VOLC.z,tx,ty:terrainH(tx,tz),tz,t:-i*.18,T:2.6+R()*1.2,H:40+R()*30,m:null});}}
 function bombHit(b){const p=_tp.set(b.tx,b.ty+.5,b.tz);for(let i=0;i<5;i++)spawnFire(p,i);debris(p,0x3a2a20);sfx('boom',.8,p);
   const pd=player?p.distanceTo(player.pos):999;if(pd<25)shakeT=Math.max(shakeT,.4*(1-pd/25));
   for(const e of entities){if(!e.alive||e.remote||e.air==='bus')continue;const d=Math.hypot(e.pos.x-p.x,e.pos.y+1-p.y,e.pos.z-p.z);if(d<6)damage(e,Math.round(70*(1-d/6)),null,'vulkan');}}
@@ -1618,8 +1646,8 @@ function endZip(jump){const q=player.zip;player.zip=null;
   if(jump){player.air='fall';player.vel.set(0,4,0);showMsg('Abgesprungen!',1.2);}
   else{const S=q.Z.st[q.dir>0?1:0];player.pos.set(S.x,S.y+.4,S.z);player.air=null;player.vel.set(0,0,0);showMsg(q.dir>0?'Oben angekommen':'Unten angekommen',1.5);}}
 /* ---------- Himmelsinseln, Aufwinde, Portale, Sonnentempel, Gewitter ---------- */
-const ISLES=[{x:-72,z:-40,y:62,r:16},{x:-26,z:-80,y:76,r:12},{x:22,z:-52,y:56,r:10}];
-const PORTALS=[[{x:-255,z:-7},{x:160,z:238}],[{x:-257,z:-186},{x:325,z:-60}]]; // Burgruine <-> Felsentor, Holzfällerlager <-> Leuchtturm
+const ISLES=[{x:-72,z:-40,y:62,r:16},{x:-26,z:-80,y:76,r:12},{x:22,z:-52,y:56,r:10}];for(const s of ISLES){s.x*=WS;s.z*=WS;}
+const PORTALS=[[{x:-255,z:-7},{x:160,z:238}],[{x:-257,z:-186},{x:325,z:-60}]];for(const pr of PORTALS)for(const q of pr){q.x*=WS;q.z*=WS;} // Burgruine <-> Felsentor, Holzfällerlager <-> Leuchtturm
 let WB=null;
 function wonderAssets2(){if(WB)return WB;const A=wonderAssets();
   const strip=canTex(mkCanvas(64,128,(x,W,H)=>{x.clearRect(0,0,W,H);for(let i=0;i<14;i++){const px=Math.random()*W,w=2+Math.random()*5;const g=x.createLinearGradient(0,0,0,H);g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.5,'rgba(220,240,255,.75)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(px,Math.random()*H*.5,w,H*.5);}}));
@@ -1701,7 +1729,7 @@ function wonderFx2(dt){if(!WB)return;const now=performance.now()/1000;
 /* ---------- Koordinaten (Raster A-H, 1-8) und Markierungen ----------
    T, mittlere Maustaste oder linker Stick (Klick) markiert, was du anvisierst: Gegner rot, Stelle gelb.
    Auf der großen Karte tippen markiert eine Stelle. Teamkollegen (im Solo alle Mitspieler) sehen es auf Karte und Bildschirm. */
-const GRID=8,GX0=-420,GCELL=105,_pv=new V3(),PINGS=[],pingEls=[],lastPg={};let pingSeq=0;
+const GRID=8,GX0=-MAPB,GCELL=MAPB/4,_pv=new V3(),PINGS=[],pingEls=[],lastPg={};let pingSeq=0;
 document.head.insertAdjacentHTML('beforeend','<style>.ping{position:absolute;transform:translate(-50%,-100%);font:900 13px var(--f);text-shadow:0 1px 3px #000;white-space:nowrap;text-align:center}.ping b{display:block;width:13px;height:13px;margin:0 auto 4px;transform:rotate(45deg);border:2px solid #fff;border-radius:3px}</style>');
 function cellOf(x,z){return 'ABCDEFGH'[clamp(Math.floor((x-GX0)/GCELL),0,GRID-1)]+(clamp(Math.floor((z-GX0)/GCELL),0,GRID-1)+1);}
 function addPing(o){for(let i=PINGS.length-1;i>=0;i--)if(PINGS[i].from===o.from)PINGS.splice(i,1); // pro Spieler eine Markierung
@@ -1727,7 +1755,7 @@ function updatePings(){const box=$('tags');let n=0;const W=innerWidth,Hh=innerHe
 /* ---------- Funkstationen: gefallene Teammitglieder zurückholen (nur Team-Modi im Mehrspieler) ----------
    Wer ausgeschieden ist, lässt seine Erkennungsmarke liegen (2 Minuten). Ein Teammitglied hebt sie auf,
    funkt 2,5 s an einer Funkstation, und der Kollege springt über der Station mit Gleiter und Pistole wieder ab. */
-const STATIONS=[[-170,40],[70,-150],[-230,-110],[60,160],[240,-10],[-90,210]],TAGS=new Map(),MYTAGS=new Set();let rbChan=null,rqSeq=0;
+const STATIONS=[[-170,40],[70,-150],[-230,-110],[60,160],[240,-10],[-90,210]].map(s=>[s[0]*WS,s[1]*WS]),TAGS=new Map(),MYTAGS=new Set();let rbChan=null,rqSeq=0;
 const lastRq={};
 function addStation(x,z){for(let k=0;k<12;k++){const h=terrainH(x,z);if(h>WL+1.5&&!PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+8)&&roadDist(x,z)>5)break;x+=7*Math.cos(k*2.1);z+=7*Math.sin(k*2.1);}
   const y=terrainH(x,z);sbox(x,y+.15,z,6,.3,6,MAT.concrete,99999,0);sbox(x+1.8,y+.9,z-1.8,1.2,1.2,.7,MAT.dark,99999,0);DECO.push(BX(.9,.5,.05,x+1.8,y+1.25,z-2.17,0x3fd0c0));
@@ -1767,13 +1795,13 @@ function resetWorld(){
   for(const p of POIS)BUILD[p.type](p);
   buildWonders();buildLandmarks();buildRiver();buildMinor();buildSpires();buildMobility();buildMushrooms();meteorReset();
   // einzelne Häuser
-  for(let n=0,k=0;n<32&&k<1200;k++){const x=rr(-360,360),z=rr(-360,360),h0=terrainH(x,z);
-    if(h0<WL+2||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+30)||Math.hypot(x-LAKE.x,z-LAKE.z)<80||roadDist(x,z)<10)continue;
+  for(let n=0,k=0;n<58&&k<2600;k++){const x=rr(-360*WS,360*WS),z=rr(-360*WS,360*WS),h0=terrainH(x,z);
+    if(h0<WL+2||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+30)||Math.hypot(x-LAKE.x,z-LAKE.z)<80*WS||roadDist(x,z)<10)continue;
     const w=rr(8,11),d=rr(7,10),hs=[terrainH(x-w/2,z-d/2),terrainH(x+w/2,z-d/2),terrainH(x-w/2,z+d/2),terrainH(x+w/2,z+d/2)];if(Math.max(...hs)-Math.min(...hs)>1.6)continue;
     const kk=RNG(),two=w>=9.5&&d>=8.5&&RNG()<.4,hh=house(x,z,w,d,two?8:4,{key:kk<.25?'wood':kk<.4?'brick':kk<.5?'wood2':null,col:pickR(PLASTER),two});houseLoot(hh,.75,.8);n++;}
   // Weiler: kleine Häusergruppen zwischen den großen Orten (mehr zu looten, mehr Deckung)
-  for(let n=0,k=0;n<9&&k<1500;k++){const x=rr(-340,340),z=rr(-340,340);
-    if(terrainH(x,z)<WL+2.5||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+40)||Math.hypot(x-LAKE.x,z-LAKE.z)<90||roadDist(x,z)<12)continue;
+  for(let n=0,k=0;n<15&&k<3000;k++){const x=rr(-340*WS,340*WS),z=rr(-340*WS,340*WS);
+    if(terrainH(x,z)<WL+2.5||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+40)||Math.hypot(x-LAKE.x,z-LAKE.z)<90*WS||roadDist(x,z)<12)continue;
     let ok=true;const spots=[];for(const[dx,dz]of[[-13,-11],[13,-11],[-13,11],[13,11]]){const hx=x+dx,hz=z+dz,c=[terrainH(hx-5.5,hz-5),terrainH(hx+5.5,hz-5),terrainH(hx-5.5,hz+5),terrainH(hx+5.5,hz+5)];
       if(Math.max(...c)-Math.min(...c)>1.6||Math.min(...c)<WL+2||cellSolids(hx,hz).some(s=>hx>s.min.x-7&&hx<s.max.x+7&&hz>s.min.z-7&&hz<s.max.z+7)){ok=false;break;}spots.push([hx,hz]);}
     if(!ok)continue;const cnt=3+(RNG()<.5?1:0);
@@ -1781,24 +1809,24 @@ function resetWorld(){
     n++;}
   propsMore();buildProps();
   // Felsen
-  for(let n=0,k=0;n<110&&k<1000;k++){const x=rr(-380,380),z=rr(-380,380),h0=terrainH(x,z);if(h0<WL+1||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+4))continue;if(roadDist(x,z)<6)continue;if(cellSolids(x,z).some(s=>x>s.min.x-2.5&&x<s.max.x+2.5&&z>s.min.z-2.5&&z<s.max.z+2.5))continue;
+  for(let n=0,k=0;n<220&&k<2400;k++){const x=rr(-380*WS,380*WS),z=rr(-380*WS,380*WS),h0=terrainH(x,z);if(h0<WL+1||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+4))continue;if(roadDist(x,z)<6)continue;if(cellSolids(x,z).some(s=>x>s.min.x-2.5&&x<s.max.x+2.5&&z>s.min.z-2.5&&z<s.max.z+2.5))continue;
     const B=bio(x,z);if(RNG()<(h0>20||B.d>.5||B.v>.4?.9:.35)){rockAt(x,z,1,B.d>.5?wonderAssets().rockRed:B.v>.4?wonderAssets().rockBlack:null);n++;}}
   // Bäume
-  for(let gx=-400;gx<=400;gx+=8)for(let gz=-400;gz<=400;gz+=8){const x=gx+rr(-3.5,3.5),z=gz+rr(-3.5,3.5),f=forestD(x,z),roll=RNG(),h0=terrainH(x,z);
-    if(roll>(f>.2?.62:.05)+Math.exp(-((x+40)**2+(z-95)**2)/4050)*.45)continue;if(h0<WL+1.8||h0>40)continue;if(roadDist(x,z)<6)continue;
+  const TB=Math.round(400*WS/8)*8;for(let gx=-TB;gx<=TB;gx+=8)for(let gz=-TB;gz<=TB;gz+=8){const x=gx+rr(-3.5,3.5),z=gz+rr(-3.5,3.5),f=forestD(x,z),roll=RNG(),h0=terrainH(x,z);
+    if(roll>(f>.2?.62:.05)+Math.exp(-((x/WS+40)**2+(z/WS-95)**2)/4050)*.45)continue;if(h0<WL+1.8||h0>40)continue;if(roadDist(x,z)<6)continue;
     if(PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+3))continue;
     if(cellSolids(x,z).some(s=>x>s.min.x-2&&x<s.max.x+2&&z>s.min.z-2&&z<s.max.z+2))continue;
     const B=bio(x,z);if(B.d>.45||B.v>.25)continue; // Wüste und Feuerberg bekommen eigene Pflanzen
     addTreeSpec(x,z,rr(.8,1.35),B.s>.35||h0>18||f>.45?1:B.w>.45?(RNG()<.3?3:4):(RNG()<.5?1:0));} // Schnee: Tannen, Sumpf: Weiden und tote Bäume
   // Wüste: Kakteen. Feuerberg: verkohlte Stämme
-  for(let n=0,k=0;n<150&&k<3000;k++){const x=rr(60,380),z=rr(110,390);if(bio(x,z).d<.6)continue;const h0=terrainH(x,z);if(h0<WL+1.8||roadDist(x,z)<5||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+3))continue;
+  for(let n=0,k=0;n<300&&k<6000;k++){const x=rr(60*WS,380*WS),z=rr(110*WS,390*WS);if(bio(x,z).d<.6)continue;const h0=terrainH(x,z);if(h0<WL+1.8||roadDist(x,z)<5||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+3))continue;
     if(cellSolids(x,z).some(s=>x>s.min.x-2&&x<s.max.x+2&&z>s.min.z-2&&z<s.max.z+2))continue;addTreeSpec(x,z,rr(.8,1.3),2);n++;}
-  for(let n=0,k=0;n<26&&k<800;k++){const a=rr(0,6.28),d=rr(30,110),x=VOLC.x+Math.cos(a)*d,z=VOLC.z+Math.sin(a)*d;if(terrainH(x,z)<WL+1.8||lavaDist(x,z)<6||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+3))continue;addTreeSpec(x,z,rr(.8,1.2),3);n++;}
+  for(let n=0,k=0;n<45&&k<1400;k++){const a=rr(0,6.28),d=rr(30,110)*WS,x=VOLC.x+Math.cos(a)*d,z=VOLC.z+Math.sin(a)*d;if(terrainH(x,z)<WL+1.8||lavaDist(x,z)<6||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+3))continue;addTreeSpec(x,z,rr(.8,1.2),3);n++;}
   // Outdoor-Loot
   for(let n=0;n<60;n++){const p=pickR(POIS),a=rr(0,6.28),d=rr(4,p.r);const x=p.x+Math.cos(a)*d,z=p.z+Math.sin(a)*d;if(terrainH(x,z)>WL+1)LOOTSP.push({x,y:terrainH(x,z),z});}
   for(let n=0;n<30;n++){const p=pickR(POIS),a=rr(0,6.28),d=rr(4,p.r);const x=p.x+Math.cos(a)*d,z=p.z+Math.sin(a)*d;if(terrainH(x,z)>WL+1.5)AMMOSP.push({x,y:terrainH(x,z)+.02,z,rot:rr(0,6.28)});}
   spawnLootSpots();
-  for(let n=0;n<18;n++){const x=rr(-340,340),z=rr(-340,340);if(terrainH(x,z)>WL+2&&Math.random()<.8)chestAt(x,terrainH(x,z)+.02,z,0);}
+  for(let n=0;n<30;n++){const x=rr(-340*WS,340*WS),z=rr(-340*WS,340*WS);if(terrainH(x,z)>WL+2&&Math.random()<.8)chestAt(x,terrainH(x,z)+.02,z,0);}
   // Baum-Instanzen
   const col=new THREE.Color(),white=new L({color:0xffffff}),itT=[],itP=[],itL=[],itC=[],itD=[],itW=[],WA2=wonderAssets();
   for(const t of trees){const sy=t.s*rr(.9,1.15),ry=rr(0,6.28),base={x:t.x,y:t.y-.2,z:t.z,s:[t.s,sy,t.s],ry,t};t.refs=[];
@@ -1807,7 +1835,7 @@ function resetWorld(){
     else{itT.push(base);
       if(t.type===1){const sn=bio(t.x,t.z).s;col.setHSL(rr(.27,.36),rr(.22,.38)*(1-sn*.7),rr(.17,.25)+sn*.42);itP.push({...base,c:col.getHex()});} // Tanne, im Schneegebiet verschneit
       else if(t.type===4){col.setHSL(rr(.17,.23),rr(.25,.38),rr(.2,.27));itW.push({...base,c:col.getHex()});} // Trauerweide
-      else{const az=Math.exp(-((t.x+250)**2+(t.z+40)**2)/24200),bz=Math.exp(-((t.x+40)**2+(t.z-95)**2)/4050),r1=RNG(),r2=RNG(); // Herbstwald im Westen, Blütenhain südlich der Stadt
+      else{const az=Math.exp(-((t.x/WS+250)**2+(t.z/WS+40)**2)/24200),bz=Math.exp(-((t.x/WS+40)**2+(t.z/WS-95)**2)/4050),r1=RNG(),r2=RNG(); // Herbstwald im Westen, Blütenhain südlich der Stadt
         if(r1<az*1.25)col.setHSL(rr(.02,.12),rr(.62,.8),rr(.4,.5));else if(r2<bz*1.5)col.setHSL(rr(.9,.97),rr(.45,.62),rr(.7,.8));else if(RNG()<.07)col.setHSL(rr(.07,.11),.5,rr(.36,.44));else col.setHSL(rr(.19,.29),rr(.32,.48),rr(.26,.36));itL.push({...base,c:col.getHex()});}}
     t.solid={min:new V3(t.x-.42*t.s,t.y-1,t.z-.42*t.s),max:new V3(t.x+.42*t.s,t.y+3.5*t.s,t.z+.42*t.s),tree:t};addSolid(t.solid);}
   treeIM=[...chunkInst(G.trunk2,MAT.trunk,itT,{cast:true,recv:true,cy:2,pad:5}),...chunkInst(G.pine,MAT.foliage,itP,{cast:true,recv:true,cy:5,pad:8}),...chunkInst(G.leafy,MAT.foliage,itL,{cast:true,recv:true,cy:5,pad:8}),
@@ -1815,7 +1843,7 @@ function resetWorld(){
   for(const m of treeIM)worldRoot.add(m);
   // Möbel, Kisten und Fässer: je Sorte wenige instanzierte Draw-Calls
   furnIM=[];{const FG=furnGeo();for(const tp in FG){const it=FURN.filter(q=>q.tp===tp);if(it.length)for(const im of chunkInst(FG[tp].g,VCM,it,{cast:true,recv:true,cy:.8,pad:3})){worldRoot.add(im);furnIM.push(im);}}}
-  stormMesh=new THREE.Mesh(stormGeo,stormMat);stormMesh.position.y=150;stormMesh.scale.set(620,1,620);worldRoot.add(stormMesh);
+  stormMesh=new THREE.Mesh(stormGeo,stormMat);stormMesh.position.y=150;stormMesh.scale.set(620*WS,1,620*WS);worldRoot.add(stormMesh);
   worldRoot.updateMatrixWorld(true);cellify();drawMiniBase();
 }
 function cellify(){const map=new Map();
@@ -1954,7 +1982,7 @@ function buildProps(){
   const T=POIS[0],deco=DECO;
   for(let gx=-2;gx<=1;gx++)for(let gz=-2;gz<=2;gz++)if(RNG()<.32)carAt(T.x+gx*22+11+2.1,T.z+gz*22+rr(-3,3),false);
   for(const[pi,n]of[[2,3],[4,4],[5,1],[7,2],[1,1]]){const q=POIS[pi];for(let i=0;i<n;i++)carAt(q.x+rr(-q.r*.7,q.r*.7),q.z+rr(-q.r*.7,q.r*.7),RNG()<.5);}
-  for(const[a,b]of ROADS){if(RNG()<.6){const t=rr(.25,.75),px=lerp(a[0],b[0],t),pz=lerp(a[1],b[1],t),ax=Math.abs(b[0]-a[0])>Math.abs(b[1]-a[1]);carAt(px+(ax?0:4.5),pz+(ax?4.5:0),ax);}}
+  for(const[a,b]of ROADS){const L=Math.hypot(b[0]-a[0],b[1]-a[1]),nc=Math.max(1,Math.round(L/170));for(let i=0;i<nc;i++){if(RNG()<.7){const t=(i+rr(.25,.75))/nc,px=lerp(a[0],b[0],t),pz=lerp(a[1],b[1],t),ax=Math.abs(b[0]-a[0])>Math.abs(b[1]-a[1]);carAt(px+(ax?0:4.5),pz+(ax?4.5:0),ax);}}} // mehr Autos auf langen Straßen, die Karte ist weit
   for(let gx=-2;gx<=1;gx++)for(let gz=-2;gz<=1;gz++){const lx=T.x+gx*22+11+4.4,lz=T.z+gz*22+11+4.4,ly=terrainH(lx,lz);
     deco.push(CYv(.07,.11,4.6,lx,ly+2.3,lz,0x2f3338,8),CYv(.16,.16,.3,lx,ly+.15,lz,0x2f3338,8),BX(.08,.08,1,lx-.45,ly+4.55,lz,0x2f3338),BX(.5,.16,.4,lx-.95,ly+4.5,lz,0x2f3338),BX(.42,.06,.32,lx-.95,ly+4.41,lz,0xfff2b0));}
   for(let k=0;k<4;k++){const a=k*Math.PI/2+Math.PI/4,bx=T.x+Math.cos(a)*7.5,bz=T.z+Math.sin(a)*7.5,by=terrainH(bx,bz),ry=-a+Math.PI/2,ox=Math.cos(a)*.25,oz=Math.sin(a)*.25;
@@ -2287,7 +2315,7 @@ function moveEntity(e,wx,wz,dt){
   else if(e.inWater){wx*=.55;wz*=.55;}
   if(!e.air){const ac=(e.onGround?(e.isPlayer?72:58):(e.isPlayer?30:16))*dt,ddx=wx-e.vel.x,ddz=wz-e.vel.z,l=Math.hypot(ddx,ddz);if(l>ac){wx=e.vel.x+ddx*ac/l;wz=e.vel.z+ddz*ac/l;}}
   e.vel.x=wx;e.vel.z=wz;
-  if(e.air==='fall')e.vel.y=-32;else if(e.air==='glide')e.vel.y=-9;else e.vel.y-=(e.vel.y<0?30:22)*dt;
+  if(e.air==='fall')e.vel.y=-32;else if(e.air==='glide')e.vel.y=-8;else e.vel.y-=(e.vel.y<0?30:22)*dt;
   e.moving=Math.hypot(wx,wz)>.5;const wasG=e.onGround;
   const steps=Math.max(1,Math.ceil(Math.max(Math.abs(wx),Math.abs(wz),Math.abs(e.vel.y))*dt/.3)),sdt=dt/steps,p=e.pos;
   for(let i=0;i<steps;i++){
@@ -2308,7 +2336,7 @@ function moveEntity(e,wx,wz,dt){
   else if(!wasG&&e.fallY!=null){const drop=e.fallY-p.y;e.fallY=null;
     if(drop>.6)e.landK=Math.min(.7,drop*.09);if(e.isPlayer&&drop>.8){camDip=Math.min(.45,drop*.045);sfx('land',Math.min(1,.25+drop/8));}
     if(drop>10)damage(e,Math.round((drop-10)*7),null,'fall');}
-  if(e.air==='fall'&&p.y-terrainH(p.x,p.z)<55){e.air='glide';if(e.isPlayer)sfx('glider');else if(player)sfx('glider',.7,p);}
+  if(e.air==='fall'&&p.y-terrainH(p.x,p.z)<75){e.air='glide';if(e.isPlayer)sfx('glider');else if(player)sfx('glider',.7,p);}
   if(e.air==='launch'&&e.vel.y<-3){e.air='glide';if(e.isPlayer)sfx('glider',.7);}
   if(!e.air&&!e.onGround&&!e.car&&e.fallY!=null&&e.fallY-p.y>8&&p.y-terrainH(p.x,p.z)>10){e.air='glide';e.fallY=null;if(e.isPlayer)sfx('glider',.7);} // tiefer Sturz (Himmelsinsel, Klippe): Gleiter geht auf
   if(e.air&&e.onGround){e.air=null;if(!e.padFly)e.landT=gameTime;if(player&&Math.hypot(p.x-player.pos.x,p.z-player.pos.z)<60)for(let i=0;i<10;i++)spawnPuff(_tp.set(p.x+rand(-.4,.4),p.y+.15,p.z+rand(-.4,.4)),0xe6d8b8,.9,3.4,.75);if(e.isPlayer&&!e.padFly)showMsg('Gelandet – such Truhen',2.2);e.padFly=false;}
@@ -2671,13 +2699,13 @@ function dropLoot(b){if(b.loot&&b.loot.claimed===b)b.loot.claimed=null;b.loot=nu
 function botShoot(b){
   const t=b.target;if(!t||!t.alive||!b.wpn)return;
   const def=WDEF[b.wpn.id],rm=RMULT[b.wpn.r],ld=(b.lead-.65)*.14;
-  _o2.set(b.pos.x,b.pos.y+1.5,b.pos.z);_t.set(t.pos.x+t.vel.x*ld,t.pos.y+(t.knocked?.5:1.15),t.pos.z+t.vel.z*ld);if(Math.random()<.25)noise(b.pos.x,b.pos.z,110,b);
+  _o2.set(b.pos.x,b.pos.y+1.5,b.pos.z);_t.set(t.pos.x+t.vel.x*ld,t.pos.y+(t.knocked?.5:1.15),t.pos.z+t.vel.z*ld);if(Math.random()<.25)noise(b.pos.x,b.pos.z,t.isPlayer||t.remote?110:60,b); // Kämpfe nur zwischen Bots locken weniger weit an
   _d2.copy(_t).sub(_o2).normalize();
   if(gameTime-(b.lastFire||-99)>3)b.trkT=Math.max(b.trkT||0,gameTime-(DIFF.settle||1.4)*.35);b.lastFire=gameTime;const stl=1+2.4*(1-clamp((gameTime-(b.trkT||0))/(DIFF.settle||1.4),0,1));
   const acc=b.skill*DIFF.acc*stl*(t.moving?(Math.hypot(t.vel.x,t.vel.z)>7?1.3:1.15):1)*(def.id==='sniper'?.4:1)*(b.crouch?.85:1)*((t.crK||0)>.5?1.12:1);
   if(!t.isPlayer&&!t.remote){ // Bot gegen Bot: Treffer auswürfeln statt Strahlen schießen (gleiche Streuung). Spart bei 200 Bots am meisten Rechenzeit
     b.mag--;b.kick=1;b.shots=(b.shots|0)+1;const dist=Math.hypot(t.pos.x-b.pos.x,t.pos.z-b.pos.z);let hit=false;
-    for(let i=0;i<def.pellets;i++){const sp=def.pellets>1?def.spread*.85+acc*.4:acc+def.spread*.4;if(dist<def.range&&Math.abs(gauss())*sp*dist<.38){hit=true;let dmg=def.dmg*rm*.45;if(def.falloff)dmg*=clamp(1-(dist-def.falloff)/40,.25,1);if(Math.random()<.12)dmg*=def.head;damage(t,dmg,b);}}
+    for(let i=0;i<def.pellets;i++){const sp=def.pellets>1?def.spread*.85+acc*.4:acc+def.spread*.4;if(dist<def.range&&Math.abs(gauss())*sp*dist<.38){hit=true;let dmg=def.dmg*rm*.3;if(def.falloff)dmg*=clamp(1-(dist-def.falloff)/40,.25,1);if(Math.random()<.12)dmg*=def.head;damage(t,dmg,b);}}
     if(!b.farH&&camera.position.distanceTo(b.pos)<160){const muzzle=muzzleOf(b).clone();if(camera.position.distanceTo(muzzle)<90)spawnFlash(muzzle); // sichtbar: Mündungsfeuer und Leuchtspur
       tracer(muzzle,hit?_e.set(t.pos.x,t.pos.y+1.1,t.pos.z):_e.set(t.pos.x+gauss()*2,t.pos.y+1+gauss(),t.pos.z+gauss()*2),0xffb347);}
     sfx(def.snd||'bot',1,_o2);return;}
@@ -2704,18 +2732,21 @@ function findCover(b,src){let best=null,bd=14;const seen=new Set();
   return best;}
 function cardinal(dx,dz){return Math.abs(dx)>Math.abs(dz)?[Math.sign(dx),0]:[0,Math.sign(dz)||1];}
 function pickWp(b,cx,cz,rad){const a=rand(0,6.283),r=Math.sqrt(Math.random())*rad;b.wp={x:clamp(cx+Math.cos(a)*r,-MAPB+10,MAPB-10),z:clamp(cz+Math.sin(a)*r,-MAPB+10,MAPB-10)};
-  const dv=Math.hypot(b.wp.x-VOLC.x,b.wp.z-VOLC.z);if(dv<30){const k=32/(dv||1);b.wp.x=VOLC.x+(b.wp.x-VOLC.x)*k;b.wp.z=VOLC.z+(b.wp.z-VOLC.z)*k;}} // Bots meiden den Krater
+  const dv=Math.hypot(b.wp.x-VOLC.x,b.wp.z-VOLC.z);if(dv<30*WS){const k=32*WS/(dv||1);b.wp.x=VOLC.x+(b.wp.x-VOLC.x)*k;b.wp.z=VOLC.z+(b.wp.z-VOLC.z)*k;}} // Bots meiden den Krater
 function attackers(e,ex){let n=0;for(const f of bots)if(f!==ex&&f.alive&&!f.knocked&&f.target===e)n++;return n;}
 function botThink(b){
   b.think=rand(.3,.6);
-  // Nach der Landung erst looten und farmen: 75 s lang greifen Bots nur an, wer ganz nah ist oder sie angreift
-  const def=b.wpn?WDEF[b.wpn.id]:null,early=gameTime-b.landT<75,sight=early?(b.aggro>0?40:def?15:0):!def?40:def.id==='sniper'?150:85;
+  // Nach der Landung erst looten und farmen: je Bot 80 bis 170 s lang greifen Bots nur an, wer ganz nah ist oder sie angreift
+  const def=b.wpn?WDEF[b.wpn.id]:null,early=gameTime-b.landT<(b.calm||110),sight=early?(b.aggro>0?40:def?15:0):!def?40:def.id==='sniper'?150:85;
   if(!(b.aggro>0&&b.target&&b.target.alive)){
-    const cand=[];for(const e of entities){if(e===b||!e.alive||e.air||sameTeam(e,b))continue;const d=Math.hypot(e.pos.x-b.pos.x,e.pos.z-b.pos.z),hum=e.isPlayer||(e.remote&&e.botIdx==null);if(d<((e.crK||0)>.5&&!(e.isPlayer&&gameTime-lastShotT<2)?sight*.55:sight)*(hum?1:.55))cand.push([d,e]);}
+    const cand=[];for(const e of entities){if(e===b||!e.alive||e.air||sameTeam(e,b))continue;const d=Math.hypot(e.pos.x-b.pos.x,e.pos.z-b.pos.z),hum=e.isPlayer||(e.remote&&e.botIdx==null);if(!hum&&(b.calmT||0)>gameTime)continue;if(d<((e.crK||0)>.5&&!(e.isPlayer&&gameTime-lastShotT<2)?sight*.55:sight)*(hum?1:storm.phase<3?.3:.4))cand.push([d,e]);}
     cand.sort((a,c)=>a[0]-c[0]);let best=null;b.tLos=1;
     for(let i=0;i<Math.min(3,cand.length);i++){const ce=cand[i][1];if(ce!==b.target&&(ce.isPlayer||(ce.remote&&ce.botIdx==null))&&attackers(ce,b)>=(DIFF.cap||3))continue;const ls=b.farH&&!ce.isPlayer&&!ce.remote?(Math.random()<.55?1:0):losState(b,ce);if(ls){best=ce;b.tLos=ls;break;}}
     if(best&&best!==b.target){b.react=rand(.6,1.3)+DIFF.react;b.trkT=gameTime;}b.target=best;
   }else b.tLos=b.farH&&!b.target.isPlayer&&!b.target.remote?1:(losState(b,b.target)||1);
+  // Kämpfe nur zwischen Bots brechen nach 6 bis 14 s ab, wenn keiner fast tot ist: beide ziehen sich zurück (sonst leert sich die Karte zu schnell)
+  {const t=b.target;if(t&&!t.isPlayer&&!t.remote){if(b.engT!==t){b.engT=t;b.engS=gameTime;b.engMax=rand(6,14);}
+    else if(gameTime-b.engS>b.engMax&&t.hp+t.shield>45&&b.hp+b.shield>35){for(const[x,y]of[[b,t],[t,b]]){if(x!==b&&x.target!==y)continue;x.flee=y;x.fleeT=rand(4,7);x.target=null;x.aggro=0;x.engT=null;x.calmT=gameTime+rand(10,18);}}}}
   // ohne Waffe: nur Nahkampf auf kurze Distanz, sonst weglaufen
   if(!def&&b.target){const d=Math.hypot(b.target.pos.x-b.pos.x,b.target.pos.z-b.pos.z);if(d>(b.aggro>0?6:3.5)){if(b.aggro>0){b.flee=b.target;b.fleeT=3;}b.target=null;}}
   if(!b.target&&(!b.wpn||b.looted<3||gameTime<480)){
@@ -2728,7 +2759,8 @@ function botThink(b){
   if(dc>storm.tr*.85+3&&!lootOk){dropLoot(b);if(!b.wp||Math.hypot(b.wp.x-storm.tx,b.wp.z-storm.tz)>storm.tr*.7+2)pickWp(b,storm.tx,storm.tz,storm.tr*.6);}
   else if(b.loot&&!b.target){const lt=b.loot;b.wp=b.lootPhase===0?{x:lt.door.x,z:lt.door.z}:{x:lt.x,z:lt.z};}
   else if(b.invT>0&&b.inv&&!b.target){b.wp={x:b.inv.x,z:b.inv.z};if(Math.hypot(b.inv.x-b.pos.x,b.inv.z-b.pos.z)<5)b.invT=0;}
-  else if(!b.wp||Math.hypot(b.wp.x-b.pos.x,b.wp.z-b.pos.z)<3){const k=storm.tr>60?.5:1;pickWp(b,lerp(b.pos.x,storm.tx,k),lerp(b.pos.z,storm.tz,k),Math.min(70,storm.tr*.8));}
+  else if(!b.wp||Math.hypot(b.wp.x-b.pos.x,b.wp.z-b.pos.z)<3){const inner=dc<storm.tr*.55,k=inner?0:storm.tr>60?.5:1; // sicher im Kreis: in der eigenen Gegend bleiben, nicht alle zur Mitte
+    pickWp(b,lerp(b.pos.x,storm.tx,k),lerp(b.pos.z,storm.tz,k),inner?Math.min(60,storm.tr*.3):Math.min(70,storm.tr*.8));}
   if(Math.random()<.35)b.strafe*=-1;
   if(!b.healT&&b.heals>0&&gameTime-b.lastHit>4&&(b.hp<75||b.shield<50)&&(!b.target||Math.hypot(b.target.pos.x-b.pos.x,b.target.pos.z-b.pos.z)>35))b.healT=2.6;
   if(TEAM>1&&!b.target){const L=botLead(b);b.revive=null;for(const f of entities)if(f.knocked&&f.alive&&f.team===b.team&&f!==b&&Math.hypot(f.pos.x-b.pos.x,f.pos.z-b.pos.z)<60){b.revive=f;break;}
@@ -2741,7 +2773,10 @@ function updateBot(b,dt){
   if(b.car){botDrive(b,dt);return;}
   if(b.air&&b.leadH){const L=botLead(b);if(L&&L.air!=='bus')b.land={x:L.pos.x+b.offX,z:L.pos.z+b.offZ};}
   if(b.knocked){const a=b.lastAtk||b.knockBy;let mx=0,mz=0;if(a&&a.alive){const dx=b.pos.x-a.pos.x,dz=b.pos.z-a.pos.z,d=Math.hypot(dx,dz)||1;mx=dx/d;mz=dz/d;b.yaw=Math.atan2(-mx,-mz);}moveEntity(b,mx*1.4,mz*1.4,dt);return;}
-  if(b.air){const dx=b.land.x-b.pos.x,dz=b.land.z-b.pos.z,d=Math.hypot(dx,dz),sp=Math.min(b.air==='fall'?24:15,d*1.5);
+  if(b.air){const dx=b.land.x-b.pos.x,dz=b.land.z-b.pos.z,d=Math.hypot(dx,dz),base=b.air==='fall'?30:b.air==='glide'?19:15;let sp=base;
+    if(b.air!=='launch'&&d>4){const hg=b.pos.y-terrainH(b.pos.x,b.pos.z),tl=b.air==='fall'?Math.max(0,hg-75)/32+75/8:Math.max(.6,hg/8),need=d/tl; // so schnell, dass der Bot sein Ziel erreicht, schneller nur fern von Spielern
+      if(need>base)sp=Math.min(need,base*(1+1.5*sstep(70,190,nearHuman(b))));}
+    sp=Math.min(sp,d*1.5);
     if(d>1)b.yaw=Math.atan2(-dx,-dz);moveEntity(b,d>1?dx/d*sp:0,d>1?dz/d*sp:0,dt);return;}
   b.think-=dt;b.aggro-=dt;b.buildCd-=dt;b.react-=dt;b.grenCd-=dt;if(b.swingT>0)b.swingT-=dt;if(b.fleeT>0)b.fleeT-=dt;if(b.invT>0)b.invT-=dt;if(b.coverT>0)b.coverT-=dt;if(b.retreatT>0)b.retreatT-=dt;
   if(b.wantCover){const src=b.wantCover;b.wantCover=null;if(src.alive){const cp=findCover(b,src);if(cp){b.coverPt=cp;b.coverT=rand(2,3.5);}}}
@@ -2826,11 +2861,11 @@ function updateBot(b,dt){
 }
 
 /* ================= Sturm & Bus ================= */
-// Sturmweg: Jede Runde endet an einem zufälligen Punkt auf festem, ebenem Land. Der erste Kreis liegt bis 150 m neben der Mitte,
+// Sturmweg: Jede Runde endet an einem zufälligen Punkt auf festem, ebenem Land. Der erste Kreis liegt bis 150*WS m neben der Mitte,
 // jeder weitere zufällig im vorigen, aber so, dass das Ziel erreichbar bleibt. Im Mehrspieler aus MP.seed, damit alle denselben Sturm haben.
 function stormEndOk(x,z){
-  if(Math.pow(Math.pow(Math.abs(x),4)+Math.pow(Math.abs(z),4),.25)>315)return false; // nicht an der Küste
-  if(Math.hypot(x-VOLC.x,z-VOLC.z)<75)return false;
+  if(Math.pow(Math.pow(Math.abs(x),4)+Math.pow(Math.abs(z),4),.25)>315*WS)return false; // nicht an der Küste
+  if(Math.hypot(x-VOLC.x,z-VOLC.z)<75*WS)return false;
   for(const T of TERR)if(Math.hypot(x-T.x,z-T.z)<T.r*1.5)return false; // nicht oben auf Stufenbergen
   for(const m of MESAS)if(Math.hypot(x-m.x,z-m.z)<m.r+12)return false;
   const h=terrainH(x,z);if(h<WL+1||h>30)return false;
@@ -2838,10 +2873,10 @@ function stormEndOk(x,z){
   return true;}
 function planStorm(){
   const R=MP.inMatch?mulberry32((MP.seed*31+7919)|0):Math.random,K=.9,KQ=.75,n=PHASES.length;
-  let ex=0,ez=14;
-  for(let i=0;i<400;i++){const x=(R()*2-1)*330,z=(R()*2-1)*330;if(stormEndOk(x,z)){ex=x;ez=z;break;}}
+  let ex=0,ez=14*WS;
+  for(let i=0;i<400;i++){const x=(R()*2-1)*330*WS,z=(R()*2-1)*330*WS;if(stormEndOk(x,z)){ex=x;ez=z;break;}}
   const reach=KQ*K*PHASES[0].r;let cx=null,cz=0;
-  for(let i=0;i<200&&cx===null;i++){const a=R()*6.283,d=Math.sqrt(R())*150,x=Math.cos(a)*d,z=Math.sin(a)*d;if(Math.hypot(ex-x,ez-z)<=reach){cx=x;cz=z;}}
+  for(let i=0;i<200&&cx===null;i++){const a=R()*6.283,d=Math.sqrt(R())*150*WS,x=Math.cos(a)*d,z=Math.sin(a)*d;if(Math.hypot(ex-x,ez-z)<=reach){cx=x;cz=z;}}
   if(cx===null){const L=Math.hypot(ex,ez)||1,m=Math.max(0,L-reach);cx=ex/L*m;cz=ez/L*m;}
   const path=[{x:cx,z:cz}];
   for(let i=1;i<n;i++){const step=K*(PHASES[i-1].r-PHASES[i].r),rem=KQ*K*PHASES[i].r;let nx=null,nz=0;
@@ -2850,7 +2885,7 @@ function planStorm(){
     cx=nx;cz=nz;path.push({x:cx,z:cz});}
   storm.path=path;storm.end={x:ex,z:ez};}
 function planNext(){const p=storm.path[storm.phase];storm.tx=p.x;storm.tz=p.z;storm.tr=PHASES[storm.phase].r;}
-function initStorm(){Object.assign(storm,{phase:0,mode:'wait',cx:0,cz:0,r:620,tick:0});planStorm();planNext();storm.t=PHASES[0].w;}
+function initStorm(){Object.assign(storm,{phase:0,mode:'wait',cx:0,cz:0,r:620*WS,tick:0});planStorm();planNext();storm.t=PHASES[0].w;}
 function updateStorm(dt){
   if(storm.mode==='done')return;storm.t-=dt;const ph=PHASES[storm.phase];
   if(storm.mode==='wait'){if(storm.t<=0){storm.mode='shrink';storm.t=ph.s;storm.fx=storm.cx;storm.fz=storm.cz;storm.fr=storm.r;banner('STURM ZIEHT ZU!');sfx('storm',.9);if(storm.phase<6&&state==='play')spawnDrop();}}
@@ -2868,14 +2903,14 @@ function makeBus(){
   return g;
 }
 function startBus(){
-  const a=srand(0,6.283),ox=srand(-60,60),oz=srand(-60,60);bus.dir.set(Math.cos(a),0,Math.sin(a));
-  bus.a.set(ox,165,oz).addScaledVector(bus.dir,-560);bus.b.set(ox,165,oz).addScaledVector(bus.dir,560);
-  bus.t=0;bus.dur=1120/40;bus.active=true;bus.pos.copy(bus.a);
+  const a=srand(0,6.283),ox=srand(-60,60)*WS,oz=srand(-60,60)*WS;bus.dir.set(Math.cos(a),0,Math.sin(a));
+  bus.a.set(ox,BUS_Y,oz).addScaledVector(bus.dir,-BUS_L/2);bus.b.set(ox,BUS_Y,oz).addScaledVector(bus.dir,BUS_L/2);
+  bus.t=0;bus.dur=BUS_L/52;bus.active=true;bus.pos.copy(bus.a);
   busMesh=makeBus();busMesh.rotation.y=Math.atan2(bus.dir.x,bus.dir.z);worldRoot.add(busMesh);
 }
 function updateBus(dt){
   if(!busMesh)return;bus.t+=dt/bus.dur;bus.pos.lerpVectors(bus.a,bus.b,bus.t);busMesh.position.copy(bus.pos);
-  if(bus.active&&bus.t>=1){bus.active=false;if(player.air==='bus')playerJump();}
+  if(bus.active&&(bus.t>=1||(bus.t>.5&&Math.pow(Math.pow(Math.abs(bus.pos.x),4)+Math.pow(Math.abs(bus.pos.z),4),.25)>380*WS))){bus.active=false;if(player.air==='bus')playerJump();} // spätestens an der Küste raus
   if(bus.t>1.4){worldRoot.remove(busMesh);busMesh=null;}
 }
 function playerJump(){if(player.air!=='bus')return;player.air='fall';player.pos.copy(bus.pos);player.pos.y-=3;player.char.g.visible=true;pitch=-.75;sfx('jumpout');$('hud').classList.remove('bus');showMsg('Freier Fall! Steuere links – Gleiter öffnet automatisch',2.5);}
@@ -2883,12 +2918,20 @@ function teamPlan(n){const out=[],hc={};if(MP.inMatch&&MP.tms){for(const k in MP
   let maxT=-1;for(const t in hc)maxT=Math.max(maxT,+t);
   if(TEAM>1)for(let t=0;t<=maxT;t++){if(!hc[t])continue;let need=TEAM-hc[t];while(need-->0&&out.length<n)out.push(t);}
   let t=maxT+1,c=0;while(out.length<n){out.push(t);if(++c>=TEAM){c=0;t++;}}return out;}
-function landSpot(){
-  const opts=POIS.map(p=>{const v=_t.set(p.x-bus.a.x,0,p.z-bus.a.z),along=clamp(v.dot(bus.dir)/1120,0,1),px=bus.a.x+bus.dir.x*along*1120,pz=bus.a.z+bus.dir.z*along*1120;return{p,along,dist:Math.hypot(p.x-px,p.z-pz)};}).filter(o=>o.dist<270);
-  if(opts.length&&Math.random()<.55){const o=opts[(Math.random()*opts.length)|0],a=rand(0,6.283),r=o.p.type==='volcano'?rand(32,72):rand(0,o.p.r*.8);return{x:o.p.x+Math.cos(a)*r,z:o.p.z+Math.sin(a)*r,at:clamp(o.along+rand(-.05,.02),.05,.95)};}
-  const at=rand(.12,.88),px=bus.a.x+bus.dir.x*at*1120,pz=bus.a.z+bus.dir.z*at*1120,a=rand(0,6.283),r=rand(20,170);
-  return{x:clamp(px+Math.cos(a)*r,-345,345),z:clamp(pz+Math.sin(a)*r,-345,345),at};
-}
+// Absprungplan: Bots verteilen sich über die ganze Karte. Große Orte bekommen mehr, Nebenorte und abgelegene Stellen ein paar.
+// Jedes Team zieht einen Platz, gewichtet nach dem, was dort noch frei ist; gesprungen wird dort, wo der Bus dem Ziel am nächsten ist.
+const BUS_Y=200,BUS_L=1120*WS;let LANDP=[];
+function landPlan(nT){const S=[];
+  for(const p of POIS){const w=p.type==='town'?14:p.type==='volcano'||p.type==='sky'?1.5:p.r>=48?7:p.r>=30?4:2.5;S.push({x:p.x,z:p.z,r:p.r*.8,vol:p.type==='volcano',w,n:0});}
+  for(const q of MINOR)S.push({x:q.x,z:q.z,r:q.r+6,w:1.4,n:0});
+  for(let i=0,k=0;i<14&&k<600;k++){const x=rand(-1,1)*330*WS,z=rand(-1,1)*330*WS,h=terrainH(x,z); // Wildnis
+    if(h<WL+1.5||h>40||PLACES.some(p=>Math.hypot(x-p.x,z-p.z)<p.r+55)||S.some(o=>o.wild&&Math.hypot(x-o.x,z-o.z)<120))continue;S.push({x,z,r:22,w:.6,n:0,wild:true});i++;}
+  const W=S.reduce((a,o)=>a+o.w,0);for(const o of S)o.e=nT*o.w/W;LANDP=S;}
+function landSpot(){if(!LANDP.length)landPlan(40);
+  let tot=0;for(const o of LANDP)tot+=Math.max(.12,o.e-o.n);let r=Math.random()*tot,o=LANDP[0];for(const q of LANDP){r-=Math.max(.12,q.e-q.n);if(r<=0){o=q;break;}}o.n++;
+  const a=rand(0,6.283),d=o.vol?rand(32,72)*WS:Math.sqrt(Math.random())*o.r,x=o.x+Math.cos(a)*d,z=o.z+Math.sin(a)*d;
+  const t=((x-bus.a.x)*bus.dir.x+(z-bus.a.z)*bus.dir.z)/BUS_L;return{x,z,at:clamp(t-rand(0,.02),.04,.96)};}
+function nearHuman(b){let m=player&&player.alive?Math.hypot(b.pos.x-player.pos.x,b.pos.z-player.pos.z):1e9;if(MP.inMatch)for(const e of MP.remotes.values())if(e.alive)m=Math.min(m,Math.hypot(b.pos.x-e.pos.x,b.pos.z-e.pos.z));return m;}
 
 /* ================= Spieler ================= */
 const input={jx:0,jy:0,fire:false,mouseFire:false,keyFire:false,jump:false};const keys={};
@@ -2917,7 +2960,7 @@ function updatePlayer(dt){
   if(slideT>0&&(!wantCr||player.air||player.knocked||!player.onGround&&player.vel.y>1))slideT=0;
   wasSprint=sprinting;player.slide=slideT>0;
   if(player.knocked){jx*=.25;jy*=.25;input.jump=false;}
-  let sp=player.air==='fall'?24:player.air==='glide'||player.air==='launch'?15:player.crouch&&player.onGround?3.8:sprinting?8.6:6.6;if(useDur>0)sp*=.5;if(zoomed&&!player.air)sp*=.6;
+  let sp=player.air==='fall'?30:player.air==='glide'?19:player.air==='launch'?15:player.crouch&&player.onGround?3.8:sprinting?8.6:6.6;if(useDur>0)sp*=.5;if(zoomed&&!player.air)sp*=.6;
   if(player.onGround)coyote=.12;else coyote-=dt;
   if(input.jump){input.jump=false;jumpBuf=.16;}else jumpBuf-=dt;
   if(jumpBuf>0&&coyote>0&&!player.air){player.vel.y=8.8;jumpBuf=0;coyote=0;player.onGround=false;crouchTog=false;sfx('jump',.4);}
@@ -3153,7 +3196,7 @@ function updateHUD(){
     if(p!==curPoi){curPoi=p;if(p){$('poi').textContent=p.name;$('poi').style.opacity=1;setTimeout(()=>{$('poi').style.opacity=0;},2600);}}}
 }
 /* Karte */
-const MS=340,MW=470,mk=v=>(v+MW)/(2*MW)*MS,mini=$('mini'),mctx=mini.getContext('2d'),miniBase=document.createElement('canvas');miniBase.width=miniBase.height=MS;
+const MS=440,MW=GH,mk=v=>(v+MW)/(2*MW)*MS,mini=$('mini'),mctx=mini.getContext('2d'),miniBase=document.createElement('canvas');miniBase.width=miniBase.height=MS;
 function drawMiniBase(){
   const c=miniBase.getContext('2d'),img=c.createImageData(MS,MS);
   for(let py=0;py<MS;py++)for(let px=0;px<MS;px++){const x=(px+.5)/MS*2*MW-MW,z=(py+.5)/MS*2*MW-MW,i=clamp(Math.round((x+GH)/CS),0,GN),j=clamp(Math.round((z+GH)/CS),0,GN),k=j*GV+i,h=TH[k],o=(py*MS+px)*4;
@@ -3232,14 +3275,14 @@ function newGame(){
   yaw=Math.atan2(-bus.dir.x,-bus.dir.z)+Math.PI;pitch=-.25;
   sel=0;inv=[null,null,null,null,null];ammoRes={leicht:0,mittel:0,schwer:0,schrot:0};kills=0;reloadT=0;fireCd=0;swingT=0;buildHeld=null;useDur=0;gameTime=0;zoomed=false;curPoi=null;
   streak=0;lastKillT=-99;chestsOpened=0;grenades.length=0;shakeT=0;confOn=false;cctx.clearRect(0,0,conf.width,conf.height);
-  const NB=MP.inMatch?(MP.host===MP.me?MP.nBots:0):NBOTS,plan=teamPlan(NB),tLand={},hLead={};
+  const NB=MP.inMatch?(MP.host===MP.me?MP.nBots:0):NBOTS,plan=teamPlan(NB),tLand={},hLead={};landPlan(new Set(plan).size);
   if(MP.inMatch&&MP.tms){for(const pe of Object.keys(MP.tms).sort())if(hLead[MP.tms[pe]]==null)hLead[MP.tms[pe]]=pe;}else hLead[0]='ME';
   for(let i=0;i<NB;i++){
     const tm=plan[i];if(!tLand[tm])tLand[tm]=landSpot();const ls=tLand[tm];
     const b=makeEntity(false,NAMES[i%NAMES.length],MP.inMatch?seededSkin(MP.seed+i):randSkin());
     Object.assign(b,{idx:i,lodDt:0,car:null,jumpAt:ls.at,land:{x:ls.x,z:ls.z},wpn:null,mag:0,heals:0,grenades:0,mats:0,skill:rand(.017,.034),react:0,
       strafe:Math.random()<.5?1:-1,burst:0,fireCd:rand(0,2),think:rand(0,1),aggro:0,stuckT:0,stuckN:0,lastX:0,lastZ:0,target:null,wp:null,buildCd:rand(1,4),
-      fortT:0,fortDir:null,rushT:0,rushB:0,healT:0,lastHit:-99,loot:null,aggr:rand(.2,.95),lead:rand(.3,1),inv:null,invT:0,coverT:0,coverPt:null,wantCover:null,retreatT:0,sideT:0,sideDir:1,aimP:0,flinch:0,lootPhase:1,lootStuck:0,looted:0,wantFort:null,flee:null,fleeT:0,swingT:0,grenCd:rand(4,9),tLos:1,landT:0});
+      fortT:0,fortDir:null,rushT:0,rushB:0,healT:0,lastHit:-99,loot:null,aggr:rand(.2,.95),lead:rand(.3,1),inv:null,invT:0,coverT:0,coverPt:null,wantCover:null,retreatT:0,sideT:0,sideDir:1,aimP:0,flinch:0,lootPhase:1,lootStuck:0,looted:0,wantFort:null,flee:null,fleeT:0,swingT:0,grenCd:rand(4,9),tLos:1,landT:0,calm:rand(80,170)});
     b.team=tm;b.offX=rand(-5,5);b.offZ=rand(-5,5);b.leadH=TEAM>1?hLead[tm]||null:null;if(b.leadH)b.jumpAt=2;else{b.jumpAt=clamp(ls.at+rand(0,.012),0,.97);b.land={x:ls.x+(TEAM>1?b.offX:0),z:ls.z+(TEAM>1?b.offZ:0)};}
     b.pos.copy(bus.pos);bots.push(b);
   }
@@ -3874,7 +3917,7 @@ function frame(now){
   hudT-=dt;if(hudT<=0&&state!=='menu'){hudT=.1;updateHUD();drawMap(mctx,MS,false);if(bigOpen)drawMap($('bigc').getContext('2d'),900,true);}
 }
 requestAnimationFrame(frame);
-window.__game={RIG,rigTick,WPK,FURN,LM,MUSH,MET,MINOR,get ramps(){return ramps;},get furnIM(){return furnIM;},get trees(){return trees;},pickaxeHit:()=>pickaxeHit(),get slide(){return{slideT,slideV};},cam:(p,t)=>{DBGCAM=p?{p:new V3(p[0],p[1],p[2]),t:new V3(t[0],t[1],t[2])}:null;},get entities(){return entities;},get camera(){return camera;},th:(x,z)=>terrainH(x,z),lowQ:()=>{lowerQuality();lowerQuality();},dbg:()=>{const a=checkAim();const near=aimRay();return {a:a?{lock:a.lock,name:a.t.name}:null,near,o:_o.toArray().map(v=>+v.toFixed(2)),d:_d.toArray().map(v=>+v.toFixed(3)),p:player.pos.toArray().map(v=>+v.toFixed(2)),auto:SAVE.auto,sel,it:curItem()};},get aim(){return aimLock;},icon,setPitch:v=>{pitch=v;},boom:(x,y,z)=>explode(new V3(x,y,z),player),get quality(){return quality;},drops:()=>chests.filter(c=>c.drop),spawnDrop,throwG:()=>{const o=new V3(player.pos.x,player.pos.y+1.8,player.pos.z);throwGrenade(player,o,new V3(0,6,-10));},info:()=>renderer.info.render,get state(){return state;},get player(){return player;},MP,WON,TAGS,MYTAGS,PINGS,pollPad,get padOn(){return padOn;},peerRoom,loadPeerJS,KC,hurtBy:(e,a,s)=>damage(e,a,s),hurt:a=>damage(player,a,null,'boom'),bots:()=>bots,cars:()=>cars,enterCar:c=>enterCar(player,c),exitCar:()=>exitCar(player),input,addPad,aliveCount,storm,planStorm,stormEndOk,builds:()=>builds,chests:()=>chests,items:()=>floorItems,inv:()=>inv,
+window.__game={RIG,rigTick,WPK,FURN,LM,MUSH,MET,MINOR,get ramps(){return ramps;},get furnIM(){return furnIM;},get trees(){return trees;},pickaxeHit:()=>pickaxeHit(),get slide(){return{slideT,slideV};},cam:(p,t)=>{DBGCAM=p?{p:new V3(p[0],p[1],p[2]),t:new V3(t[0],t[1],t[2])}:null;},get entities(){return entities;},get camera(){return camera;},th:(x,z)=>terrainH(x,z),lowQ:()=>{lowerQuality();lowerQuality();},dbg:()=>{const a=checkAim();const near=aimRay();return {a:a?{lock:a.lock,name:a.t.name}:null,near,o:_o.toArray().map(v=>+v.toFixed(2)),d:_d.toArray().map(v=>+v.toFixed(3)),p:player.pos.toArray().map(v=>+v.toFixed(2)),auto:SAVE.auto,sel,it:curItem()};},get aim(){return aimLock;},icon,setPitch:v=>{pitch=v;},boom:(x,y,z)=>explode(new V3(x,y,z),player),get quality(){return quality;},drops:()=>chests.filter(c=>c.drop),spawnDrop,throwG:()=>{const o=new V3(player.pos.x,player.pos.y+1.8,player.pos.z);throwGrenade(player,o,new V3(0,6,-10));},info:()=>renderer.info.render,get state(){return state;},get player(){return player;},MP,WON,TAGS,MYTAGS,PINGS,pollPad,get padOn(){return padOn;},peerRoom,loadPeerJS,KC,hurtBy:(e,a,s)=>damage(e,a,s),hurt:a=>damage(player,a,null,'boom'),bots:()=>bots,cars:()=>cars,enterCar:c=>enterCar(player,c),exitCar:()=>exitCar(player),input,addPad,aliveCount,storm,planStorm,stormEndOk,newGame,landp:()=>LANDP,bus,builds:()=>builds,chests:()=>chests,items:()=>floorItems,inv:()=>inv,
   build:t=>playerBuild(t),crouch:v=>{crouchTog=!!v;},takeSeat:(c,k)=>takeSeat(player,c,k),leaveSeat:()=>leaveSeat(player),dmgS:(s,d)=>damageStruct(s,d),applyHitE:(e,d)=>applyHit({object:{userData:{kind:'ent',ent:e}},point:new V3(e.pos.x,e.pos.y+1,e.pos.z),distance:5},d,player,1),
   audioReset,get audFix(){return audFix;},audio:()=>({ctx:!!actx,st:actx&&actx.state,loops:!!LOOPS,voc:VOC.length,pan:CAN_PAN,rev:!!REV,mus:MUS.on,step:MUS.step}),gfx:l=>applyGfx(l),get GFX(){return GFX;},openSet,sfx:(t,v,p)=>sfx(t,v,p),SND:()=>Object.keys(SND),GUN:()=>Object.keys(GUNSND),tgt:()=>{if(!tgtS)return null;const q=tgtAim?tgtPt.clone():tgtS.obj.position.clone();if(!tgtAim)q.y+=2.6;const w=q.clone();q.project(camera);return {type:tgtS.type,hp:tgtS.hp,max:tgtS.max,car:!!tgtS.car,T:tgtT,aim:tgtAim,w:w.toArray().map(v=>+v.toFixed(2)),ndc:q.toArray().map(v=>+v.toFixed(2)),cam:camera.position.toArray().map(v=>+v.toFixed(2))};},DIFF:()=>DIFF,PHASES,attackers,seatTick,canRide,freeSeat,get crackT(){return crackT;},
   setYaw:v=>{yaw=v;},jump:()=>playerJump(),interact,select:selectSlot,get act(){return actTarget;},ammo:()=>ammoRes,
